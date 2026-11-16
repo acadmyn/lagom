@@ -6,8 +6,12 @@
 -- midimix: faders = density
 -- knobs = range / division / length
 -- mute buttons = mute
+-- bank right: tap next chord,
+--   hold home
+-- solo+bank right: tap play,
+--   hold save progression
 --
--- v0.2 (step 2: 8 tracks + midimix)
+-- v0.3 (step 3: harmony + conductor)
 
 local K = include("lib/const")
 local MU = require "musicutil"
@@ -16,9 +20,25 @@ local C = include("lib/clockio")
 local Track = include("lib/track")
 local Seq = include("lib/seq")
 local Mix = include("lib/midimix")
+local H = include("lib/harmony")
+local Cd = include("lib/conductor")
 
 local tracks = {}
 local redraw_coro
+local flash, flash_until = nil, 0
+
+local function show(msg)
+  flash, flash_until = msg, util.time() + 1
+end
+
+-- default templates: tension, base note, range (drums/chord types in step 4)
+local TEMPLATE = {
+  {4, 48, 24},   -- T1 (drums later)
+  {2, 36, 12},   -- T2 bass
+  {3, 48, 12},   -- T3 chord
+  {4, 60, 24},   -- T4 lead
+  {4, 48, 24}, {4, 48, 24}, {4, 60, 24}, {4, 60, 24},
+}
 
 local function fmt_pct(p) return p:get() .. "%" end
 
@@ -26,6 +46,32 @@ local function fmt_range(p)
   local v = p:get()
   if v % 12 == 0 then return (v // 12) .. " oct" end
   return v .. " st"
+end
+
+local function add_harmony_params()
+  local function stage()
+    H.stage(params:get("root") - 1, params:get("scale"), not C.playing)
+  end
+  params:add_separator("lagom_harmony_sep", "harmony")
+  params:add_option("root", "root", MU.NOTE_NAMES, 1)
+  params:set_action("root", stage)
+  params:add_option("scale", "scale", H.scale_names(), 1)
+  params:set_action("scale", stage)
+  params:add_option("progression", "progression", Cd.mode_names(), 2)
+  params:set_action("progression", function() Cd.reroll() end)
+  params:add_number("chords", "chords", 2, 8, 4)
+  params:set_action("chords", function() if Cd.mode() == 2 then Cd.reroll() end end)
+  params:add_option("chord_rate", "chord rate", Cd.RATE_NAMES, 2)
+  params:add_number("harmony_drift", "harmony drift", 0, 100, 0, fmt_pct)
+  params:add_number("harmony_gravity", "harmony gravity", 0, 100, 50, fmt_pct)
+  params:add_trigger("next_chord", "next chord")
+  params:set_action("next_chord", function() Cd.request_next(not C.playing) end)
+  params:add_trigger("home", "home")
+  params:set_action("home", function() Cd.request_home(not C.playing) end)
+  params:add_trigger("reroll_progression", "re-roll progression")
+  params:set_action("reroll_progression", function() Cd.reroll() end)
+  params:add_trigger("save_progression", "save progression")
+  params:set_action("save_progression", function() Cd.save(); show("PROGRESSION SAVED") end)
 end
 
 local function add_global_params(names)
@@ -40,7 +86,8 @@ end
 local function add_track_params(names)
   for i = 1, K.NUM_TRACKS do
     local pre = "t" .. i .. "_"
-    params:add_group("track_" .. i, "track " .. i, 10)
+    local tpl = TEMPLATE[i]
+    params:add_group("track_" .. i, "track " .. i, 11)
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
     params:set_action(pre .. "mute", function(x)
@@ -51,11 +98,12 @@ local function add_track_params(names)
     params:set_action(pre .. "reroll", function() tracks[i]:roll() end)
     params:add_number(pre .. "len", "length", 1, K.MAX_STEPS, 16)
     params:add_option(pre .. "div", "division", K.DIV_NAMES, K.DIV_DEFAULT)
-    params:add_number(pre .. "range", "range", 1, K.MAX_RANGE, 24, fmt_range)
+    params:add_number(pre .. "range", "range", 1, K.MAX_RANGE, tpl[3], fmt_range)
+    params:add_option(pre .. "tension", "tension", H.TENSIONS, tpl[1])
     params:add_number(pre .. "gate", "gate", 5, 100, 50, fmt_pct)
     params:add_option(pre .. "port", "port", names, 2)
     params:add_number(pre .. "ch", "channel", 1, 16, i)
-    params:add_number(pre .. "base", "base note", 0, 127, 48,
+    params:add_number(pre .. "base", "base note", 0, 127, tpl[2],
       function(p) return MU.note_num_to_name(p:get(), true) end)
   end
 end
@@ -64,18 +112,26 @@ function init()
   math.randomseed(os.time())
   Out.init()
   Mix.init(Out)
+  Track.H = H
   for i = 1, K.NUM_TRACKS do tracks[i] = Track.new(i) end
 
   local names = Out.port_names()
   params:add_separator("lagom", "lagom")
   C.add_params(names)
+  add_harmony_params()
   add_global_params(names)
   add_track_params(names)
 
+  Cd.init(H)
+  Cd.on_change = function() Mix.blink_bank_right() end
   C.init(Out,
-    function() Seq.reset(); Seq.catch_up() end,
+    function() Seq.reset(); Cd.start(); Seq.catch_up() end,
     function() Seq.stop_all() end)
   Seq.init(Out, C, tracks)
+  Seq.on_bar = function(n)
+    H.apply()
+    Cd.bar(n == 0)
+  end
 
   -- route all midi input through one dispatcher
   for i = 1, 16 do
@@ -86,6 +142,8 @@ function init()
   end
 
   params:bang()
+  H.apply()
+  Cd.save()
   Mix.refresh()
   Seq.start()
 
@@ -96,7 +154,7 @@ function init()
     end
   end)
   -- handle for REPL introspection while developing
-  _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix}
+  _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd}
   print("lagom: init ok")
 end
 
@@ -144,7 +202,7 @@ local function draw_track(i, y)
 
   screen.level(muted and 2 or 5)
   screen.move(97, y + 4)
-  screen.text(muted and "MUTE" or K.DIV_NAMES[t:p("div")])
+  screen.text(muted and "MUTE" or H.TENSION_SHORT[t:p("tension")])
 end
 
 local function draw_global_meter()
@@ -164,25 +222,51 @@ local function draw_global_meter()
   screen.fill()
 end
 
+-- chord, progression dots, key, tempo
+local function draw_header()
+  screen.level(15)
+  screen.move(0, 6)
+  if C.warning then
+    screen.text("! " .. C.warning)
+    return
+  end
+  if util.time() < flash_until then
+    screen.text(flash)
+    return
+  end
+  if not Mix.synced then
+    screen.text("PRESS SEND ALL ON MIDIMIX")
+    return
+  end
+  local pending = Cd.pending_next or Cd.pending_home
+  screen.level(pending and 8 or 15)
+  screen.text(string.upper(H.chord_label(H.degree)))
+
+  for i = 1, #Cd.working do
+    screen.level(i == Cd.idx and 15 or 3)
+    screen.rect(40 + (i - 1) * 3, 3, 2, 2)
+    screen.fill()
+  end
+  if Cd.unsaved() then
+    screen.level(8)
+    screen.move(40 + #Cd.working * 3, 6)
+    screen.text("*")
+  end
+
+  screen.level(H.pending and 15 or 5)
+  screen.move(70, 6)
+  screen.text(H.key_label())
+  screen.level(C.playing and 12 or 4)
+  screen.move(125, 6)
+  screen.text_right(C.is_slave() and "EXT" or math.floor(clock.get_tempo() + 0.5))
+end
+
 function redraw()
   screen.clear()
   screen.font_face(25)
   screen.font_size(6)
 
-  screen.level(15)
-  screen.move(0, 6)
-  if C.warning then
-    screen.text("! " .. C.warning)
-  elseif not Mix.synced then
-    screen.text("PRESS SEND ALL ON MIDIMIX")
-  else
-    screen.text("LAGOM")
-    screen.level(6)
-    screen.move(28, 6)
-    local state = C.playing and "PLAY" or (C.pending_start and "WAIT" or "STOP")
-    screen.text(state .. "  " .. math.floor(clock.get_tempo() + 0.5) .. " BPM  " ..
-      (C.is_slave() and "EXT" or "INT"))
-  end
+  draw_header()
 
   for i = 1, K.NUM_TRACKS do draw_track(i, 9 + (i - 1) * 7) end
   draw_global_meter()

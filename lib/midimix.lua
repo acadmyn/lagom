@@ -4,6 +4,7 @@ local K = include("lib/const")
 
 local M = {
   synced = false,   -- true once any fader/knob has been received (SEND ALL hint)
+  solo = false,     -- SOLO is the shift button
 }
 
 local Out           -- injected
@@ -15,7 +16,8 @@ local KNOB_MID = {17, 21, 25, 29, 47, 51, 55, 59}
 local KNOB_BOT = {18, 22, 26, 30, 48, 52, 56, 60}
 local NOTE_MUTE = {1, 4, 7, 10, 13, 16, 19, 22}
 local NOTE_REC = {3, 6, 9, 12, 15, 18, 21, 24}
-local NOTE_BANK_L, NOTE_BANK_R = 25, 26
+local NOTE_BANK_L, NOTE_BANK_R, NOTE_SOLO = 25, 26, 27
+local HOLD = 0.6    -- seconds: tap vs hold
 
 -- cc number -> function(value 0..127)
 local cc_map = {}
@@ -45,6 +47,44 @@ for i = 1, K.NUM_TRACKS do
   end
 end
 
+-- tap/hold buttons: the action fires on release (tap) or at HOLD (hold);
+-- shift state is captured at press time
+local held = {}
+
+local function press(note, tap, hold)
+  local shift = M.solo
+  local h = {fired = false}
+  h.coro = clock.run(function()
+    clock.sleep(HOLD)
+    h.fired = true
+    hold(shift)
+  end)
+  held[note] = h
+  h.tap = function() tap(shift) end
+end
+
+local function release(note)
+  local h = held[note]
+  if not h then return end
+  held[note] = nil
+  if not h.fired then
+    clock.cancel(h.coro)
+    h.tap()
+  end
+end
+
+local function bank_right_tap(shift)
+  if shift then
+    params:set("play", 1 - params:get("play"))
+  else
+    params:set("next_chord", 1)
+  end
+end
+
+local function bank_right_hold(shift)
+  params:set(shift and "save_progression" or "home", 1)
+end
+
 cc_map[MASTER] = function(v)
   params:set("global_density", util.round(v / 127 * 200 - 100))
 end
@@ -65,8 +105,20 @@ function M.event(data)
       f(msg.val)
     end
   elseif msg.type == "note_on" then
-    local f = note_map[msg.note]
-    if f then f() end
+    if msg.note == NOTE_SOLO then
+      M.solo = true
+    elseif msg.note == NOTE_BANK_R then
+      press(NOTE_BANK_R, bank_right_tap, bank_right_hold)
+    else
+      local f = note_map[msg.note]
+      if f then f() end
+    end
+  elseif msg.type == "note_off" then
+    if msg.note == NOTE_SOLO then
+      M.solo = false
+    else
+      release(msg.note)
+    end
   end
 end
 
@@ -75,6 +127,15 @@ local function led(note, on)
 end
 
 function M.led_mute(i, on) led(NOTE_MUTE[i], on) end
+
+-- short blink of BANK RIGHT on chord changes
+function M.blink_bank_right()
+  led(NOTE_BANK_R, true)
+  clock.run(function()
+    clock.sleep(0.12)
+    led(NOTE_BANK_R, false)
+  end)
+end
 
 -- push every led to match current state
 function M.refresh()

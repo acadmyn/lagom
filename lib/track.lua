@@ -1,11 +1,8 @@
 -- a sequencer track: step data + per-step playback
 local K = include("lib/const")
-local MU = require "musicutil"
 
 local Track = {}
 Track.__index = Track
-
-local SCALE = MU.generate_scale(0, "major", 11)   -- until step 3: fixed C major
 
 function Track.new(id)
   local t = setmetatable({id = id, pos = 0, steps = {}, order = {}, last_note = nil}, Track)
@@ -54,19 +51,29 @@ function Track:update_order(len)
   self.order_len = len
 end
 
--- scale notes from base note up to base + range (cached)
-function Track:pool()
-  local base, range = self:p("base"), self:p("range")
-  local k = base * 100 + range
-  if self.pool_key ~= k then
-    local pool = {}
-    for _, n in ipairs(SCALE) do
-      if n >= base and n <= base + range and n <= 127 then pool[#pool + 1] = n end
-    end
-    if #pool == 0 then pool[1] = base end
-    self.pool_cache, self.pool_key = pool, k
+-- notes from base note up to base + range whose pitch class the tension
+-- allows on this kind of beat (cached per harmony version)
+function Track:pool(strong)
+  local H = Track.H
+  local base, range, tension = self:p("base"), self:p("range"), self:p("tension")
+  local k = table.concat({base, range, tension, strong and 1 or 0, H.version}, ",")
+  self.pools = self.pools or {}
+  local c = self.pools[strong and 1 or 2]
+  if c and c.key == k then return c.notes end
+  local pcs = H.pcs(tension, strong)
+  local notes = {}
+  for n = base, math.min(127, base + range) do
+    if pcs[n % 12] then notes[#notes + 1] = n end
   end
-  return self.pool_cache
+  -- range too narrow for this tension: take the nearest allowed note above
+  local n = base + range + 1
+  while #notes == 0 and n <= 127 do
+    if pcs[n % 12] then notes[1] = n end
+    n = n + 1
+  end
+  if #notes == 0 then notes[1] = base end
+  self.pools[strong and 1 or 2] = {key = k, notes = notes}
+  return notes
 end
 
 function Track:reset() self.pos = 0 end
@@ -76,7 +83,8 @@ function Track:is_audible(s, len, density)
 end
 
 -- called on each step boundary; schedules notes via seq
-function Track:step(t, seq)
+-- rel = ticks since the transport origin (a step on a beat is "strong")
+function Track:step(t, seq, rel)
   local len = self:p("len")
   self.pos = (self.pos % len) + 1
   if self:p("mute") == 1 then return end
@@ -84,7 +92,7 @@ function Track:step(t, seq)
   local st = self.steps[self.pos]
   if not self:is_audible(self.pos, len, self:density()) then return end
 
-  local pool = self:pool()
+  local pool = self:pool(rel % K.PPQN == 0)
   local note = pool[math.min(#pool, math.floor(st.p * #pool) + 1)]
   local vel = 100
   local div = K.DIV_TICKS[self:p("div")]

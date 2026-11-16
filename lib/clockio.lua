@@ -44,6 +44,7 @@ function C.add_params(names)
   end)
   params:add_option("lagom_clock_in", "clock in port", names, 2)
   params:set_action("lagom_clock_in", function() C.apply_clock_in() end)
+  params:add_number("beats_per_bar", "beats per bar", 1, 16, 4)
   params:add_binary("play", "play", "toggle", 0)
   params:set_action("play", function(x)
     if x == 1 then C.request_start() else C.request_stop() end

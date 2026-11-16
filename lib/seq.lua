@@ -46,12 +46,15 @@ function Seq.stop_all()
   Out.panic()
 end
 
+-- bar lines first (harmony lands there), then every track due on this tick
 local function step_tracks(t)
   local rel = t - C.origin
   if rel < 0 then return end
+  local bar = params:get("beats_per_bar") * K.PPQN
+  if rel % bar == 0 and Seq.on_bar then Seq.on_bar(rel // bar) end
   for _, tr in ipairs(Seq.tracks) do
     local div = K.DIV_TICKS[tr:p("div")]
-    if rel % div == 0 then tr:step(t, Seq) end
+    if rel % div == 0 then tr:step(t, Seq, rel) end
   end
 end
 
