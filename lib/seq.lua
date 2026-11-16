@@ -11,9 +11,20 @@ function Seq.init(out, clockio, tracks)
   Out, C, Seq.tracks = out, clockio, tracks
 end
 
-function Seq.note(t, p, c, n, v, gate)
+function Seq.note(t, p, c, n, v, gate, id)
   Out.note_on(p, c, n, v)
-  offs[#offs + 1] = {at = t + gate, p = p, c = c, n = n}
+  offs[#offs + 1] = {at = t + gate, p = p, c = c, n = n, id = id}
+end
+
+-- end every sounding note of one track now (mute)
+function Seq.flush_track(id)
+  for i = #offs, 1, -1 do
+    local o = offs[i]
+    if o.id == id then
+      Out.note_off(o.p, o.c, o.n)
+      table.remove(offs, i)
+    end
+  end
 end
 
 local function process_offs(t)
