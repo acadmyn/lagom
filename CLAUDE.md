@@ -1,0 +1,39 @@
+# lagom: notes for agents
+
+lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony, played from an Akai MIDImix and sent to hardware synths.
+
+- **Every product decision** is in `docs/design.md`. Read it before changing behavior. It came from a long interview with the user, so don't re-ask settled questions.
+- **Build plan**: GitHub issues #1–#7 (one per step) and #8–#9 (later). The issue bodies are mirrored in `tools/issues/`.
+- **Visual mockups** (private to the user): https://claude.ai/artifact/Hjxc1w5SiS565Vyx37METb. The source of truth is `docs/design.md`.
+
+## Workflow (the user expects this)
+
+1. Implement **one step (issue) at a time**, in small increments.
+2. Deploy with `tools/deploy.sh`. It rsyncs to `we@norns.tretiotre.local:~/dust/code/lagom` and reloads the script through `tools/repl.py`, which prints matron output. Look for `lagom: init ok` and the absence of errors or `MISSING INCLUDE`.
+3. Smoke-test from the REPL: `python3 tools/repl.py 'print(_lagom.tracks[1].pos)'`. The `_lagom` global exposes tracks, C (clockio), Seq and Out.
+4. Give the user a **"test by ear" checklist**, then wait for their feedback before the next step.
+5. Commit, push, comment on or close issues, and merge PRs; the user allows all of these without asking. Commit messages end with the attribution lines from the system reminder.
+
+## Hardware facts (verified)
+
+- norns shield XL, Pi 4, norns 260102, Raspbian bullseye, Lua 5.3.
+- **MIDI devices** (vports): 1 = MIDI Mix, 2 = OP-1. The TRS jacks show up as the device `virtual` (through ttymidi) and are **not yet assigned** to a vport.
+- **Matron holds MIDI devices exclusively**, so `amidi` and `aseqdump` can't open them. To sniff MIDI, hook `midi.devices[id].event` from the REPL instead.
+- **The MIDImix map** (factory preset, channel 1) is in `docs/design.md`. The mute, rec arm and BANK LEDs respond to note-ons; SOLO has no LED. Knobs send absolute values.
+- **Realtime bytes** (`F8 FA FB FC`) reach Lua `event` callbacks as well as the system clock. lagom's slave thru relies on this (see `matron/src/device/device_midi.c`).
+- **The system "midi clock out"** sends only `F8`, never Start/Stop. lagom sends its own clock instead.
+- **External MIDI Start**: the norns clock reports beat 0 on the first `F8` after `FA` (`clock_midi.c`). `Seq.catch_up()` covers the race between the transport callback and the tick loop.
+- **Pixel font** for the UI: `screen.font_face(25)` (`bmp/tom-thumb`).
+- Check APIs against the source on the device (`~/norns/lua/core`, `~/norns/lua/lib`, `~/norns/matron/src`) rather than from memory.
+
+## Code layout
+
+- `lagom.lua`: init, params, keys, temporary step 1 screen.
+- `lib/const.lua`: PPQN = 48, divisions.
+- `lib/seq.lua`: the single tick loop (clock.sync 1/48) covering note-offs, clock out and track steps. **All timing goes through here.** Don't add per-track clock coroutines.
+- `lib/clockio.lua`: master/slave, thru, clock out ports, the `play` param, transport callbacks.
+- `lib/track.lua`: step data (pitch, velocity and gate seeds, rank), density ordering, step playback. For now it uses a fixed C major pool; that's replaced in step 3.
+- `lib/out.lua`: port connections, note-on/off with overlap counting, panic.
+- Planned (see design.md): `midimix.lua`, `harmony.lua`, `conductor.lua`, `store.lua`, `ui.lua`.
+- `include()` re-runs the file each time, so each module is included once in `lagom.lua` and passed by reference (`const.lua` is the exception, since it's stateless).
+- Never name a module or global `engine`; that name belongs to the norns audio engine.
