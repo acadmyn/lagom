@@ -4,6 +4,7 @@ local K = {}
 K.PPQN = 48          -- internal ticks per quarter note
 K.NUM_TRACKS = 8
 K.MAX_STEPS = 32
+K.MAX_RANGE = 48      -- semitones above base note (4 octaves)
 
 -- clock divisions: label + ticks per step at 48 ppqn
 K.DIV_NAMES = {"1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4", "1/2", "1/1", "2bar"}
