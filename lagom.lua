@@ -3,6 +3,7 @@
 -- 8 tracks, always in harmony
 --
 -- K3 play / stop
+-- K2 cancel note learn
 -- midimix: faders = density
 -- knobs = range / division / length
 -- mute buttons = mute
@@ -22,6 +23,7 @@ local Seq = include("lib/seq")
 local Mix = include("lib/midimix")
 local H = include("lib/harmony")
 local Cd = include("lib/conductor")
+local Learn = include("lib/learn")
 
 local tracks = {}
 local redraw_coro
@@ -86,9 +88,11 @@ local function update_visibility(i)
   end
   vis("voices", ty ~= 1)
   for _, id in ipairs(PITCH_PARAMS) do vis(id, not drums) end
+  vis("learn_all", drums)
   for l = 1, 8 do
     vis("lane" .. l .. "_note", drums)
     vis("lane" .. l .. "_role", drums)
+    vis("lane" .. l .. "_learn", drums)
   end
   if _menu and _menu.rebuild_params then _menu.rebuild_params() end
 end
@@ -101,7 +105,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 36)
+    params:add_group("track_" .. i, "track " .. i, 45)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
@@ -139,12 +143,16 @@ local function add_track_params(names)
     params:add_number(pre .. "legprob", "legato prob", 0, 100, 25, fmt_pct)
     params:set_action(pre .. "legprob", on_change(function(t) t:roll_legato() end))
     -- drum lanes
+    params:add_trigger(pre .. "learn_all", "learn all lanes")
+    params:set_action(pre .. "learn_all", function() Learn.arm(i, 1, params:get(pre .. "voices")) end)
     for l = 1, 8 do
       params:add_number(pre .. "lane" .. l .. "_note", "lane " .. l .. " note", 0, 127,
         Track.DRUM_NOTES[l], note_name)
       params:add_option(pre .. "lane" .. l .. "_role", "lane " .. l .. " role", Track.ROLES,
         Track.DRUM_ROLES[l])
       params:set_action(pre .. "lane" .. l .. "_role", on_change(function(t) t:rank_lane(l) end))
+      params:add_trigger(pre .. "lane" .. l .. "_learn", "lane " .. l .. " learn")
+      params:set_action(pre .. "lane" .. l .. "_learn", function() Learn.arm(i, l) end)
     end
   end
 end
@@ -183,7 +191,11 @@ function init()
   for i = 1, 16 do
     Out.ports[i].event = function(data)
       C.midi_in(i, data)
-      if i == Mix.port() then Mix.event(data) end
+      if i == Mix.port() then
+        Mix.event(data)
+      else
+        Learn.midi_in(data)
+      end
     end
   end
 
@@ -200,12 +212,14 @@ function init()
     end
   end)
   -- handle for REPL introspection while developing
-  _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd}
+  _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd, Learn = Learn}
   print("lagom: init ok")
 end
 
 function key(n, z)
-  if n == 3 and z == 1 then
+  if n == 2 and z == 1 and Learn.active() then
+    Learn.cancel()
+  elseif n == 3 and z == 1 then
     params:set("play", 1 - params:get("play"))
   end
 end
@@ -287,6 +301,14 @@ local function draw_header()
   screen.move(0, 6)
   if C.warning then
     screen.text("! " .. C.warning)
+    return
+  end
+  if Learn.active() then
+    screen.text(Learn.prompt())
+    return
+  end
+  if util.time() < Learn.done_until then
+    screen.text(Learn.done_msg)
     return
   end
   if util.time() < flash_until then
