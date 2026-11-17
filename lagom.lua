@@ -6,19 +6,26 @@
 -- K2 cancel note learn
 -- midimix: faders = density
 -- knobs = range / division / length
--- mute buttons = mute
+-- mute = mute, rec arm: tap
+--   re-roll, hold save
+-- solo+mute/rec: next/prev slot
+-- bank left held: alt knobs
+--   (drift/gravity/gate),
+--   +rec revert, +mute undo
 -- bank right: tap next chord,
 --   hold home
 -- solo+bank right: tap play,
 --   hold save progression
+-- solo+bank left hold: save all
 --
--- v0.4 (step 4: track types + feel)
+-- v0.5 (step 5: slots + evolve)
 
 local K = include("lib/const")
 local MU = require "musicutil"
 local Out = include("lib/out")
 local C = include("lib/clockio")
 local Track = include("lib/track")
+include("lib/slots")(Track)
 local Seq = include("lib/seq")
 local Mix = include("lib/midimix")
 local H = include("lib/harmony")
@@ -31,6 +38,14 @@ local flash, flash_until = nil, 0
 
 local function show(msg)
   flash, flash_until = msg, util.time() + 1
+end
+
+local function fmt_pct(p) return p:get() .. "%" end
+
+local function fmt_range(p)
+  local v = p:get()
+  if v % 12 == 0 then return (v // 12) .. " oct" end
+  return v .. " st"
 end
 
 -- default templates: type, tension, base note, range
@@ -75,6 +90,12 @@ local function add_global_params(names)
   params:add_separator("lagom_ctrl_sep", "controller")
   params:add_option("controller_port", "controller port", names, 1)
   params:set_action("controller_port", function() Mix.refresh() end)
+  params:add_separator("lagom_slots_sep", "slots")
+  params:add_trigger("save_all", "save all tracks")
+  params:set_action("save_all", function()
+    for _, t in ipairs(tracks) do t:save() end
+    show("ALL TRACKS SAVED")
+  end)
 end
 
 -- show only the params that matter for a track's type
@@ -105,7 +126,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 45)
+    params:add_group("track_" .. i, "track " .. i, 54)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
@@ -113,13 +134,37 @@ local function add_track_params(names)
       if x == 1 then Seq.flush_track(i) end
       Mix.led_mute(i, x == 1)
     end)
+    local function req(kind, arg_fn)
+      return on_change(function(t, x)
+        t:request(kind, arg_fn and arg_fn(t, x), not C.playing)
+      end)
+    end
     params:add_trigger(pre .. "reroll", "re-roll")
-    params:set_action(pre .. "reroll", on_change(function(t) t:roll() end))
-    -- shape
+    params:set_action(pre .. "reroll", req("reroll"))
+    params:add_trigger(pre .. "save", "save")
+    params:set_action(pre .. "save", on_change(function(t)
+      t:save()
+      show("T" .. i .. " SLOT " .. t.slot .. " SAVED")
+    end))
+    params:add_trigger(pre .. "revert", "revert")
+    params:set_action(pre .. "revert", req("revert"))
+    params:add_trigger(pre .. "undo", "undo")
+    params:set_action(pre .. "undo", req("undo"))
+    params:add_number(pre .. "slot", "slot", 1, Track.NUM_SLOTS, 1)
+    params:set_action(pre .. "slot", req("slot", function(_, x) return x end))
+    params:add_trigger(pre .. "slot_next", "slot next")
+    params:set_action(pre .. "slot_next", req("slot", function(t) return t:target_slot() + 1 end))
+    params:add_trigger(pre .. "slot_prev", "slot prev")
+    params:set_action(pre .. "slot_prev", req("slot", function(t) return t:target_slot() - 1 end))
+    -- shape (stored with each slot)
+    local dirty = on_change(function(t) t.dirty = true end)
     params:add_number(pre .. "len", "length", 1, K.MAX_STEPS, 16)
     params:add_option(pre .. "div", "division", K.DIV_NAMES, K.DIV_DEFAULT)
     params:add_number(pre .. "range", "range", 1, K.MAX_RANGE, tpl[4], fmt_range)
     params:add_number(pre .. "gate", "gate", 5, 100, 50, fmt_pct)
+    params:add_number(pre .. "drift", "drift", 0, 100, 0, fmt_pct)
+    params:add_number(pre .. "gravity", "gravity", 0, 100, 50, fmt_pct)
+    for _, k in ipairs(Track.SHAPE) do params:set_action(pre .. k, dirty) end
     -- setup
     params:add_option(pre .. "type", "type", Track.TYPES, tpl[1])
     params:set_action(pre .. "type", on_change(function(t)
@@ -134,6 +179,7 @@ local function add_track_params(names)
     params:add_number(pre .. "base", "base note", 0, 127, tpl[3], note_name)
     params:add_option(pre .. "tension", "tension", H.TENSIONS, tpl[2])
     params:add_option(pre .. "restart", "restart", Track.RESTART_NAMES, 1)
+    params:add_number(pre .. "motif", "motif size", 0, 8, 4)
     -- feel
     params:add_binary(pre .. "fixgate", "fixed gate", "toggle", 1)
     params:add_binary(pre .. "velon", "velocity", "toggle", 0)
@@ -160,7 +206,7 @@ end
 function init()
   math.randomseed(os.time())
   Out.init()
-  Mix.init(Out)
+  Mix.init(Out, tracks)
   Track.H = H
 
   local names = Out.port_names()
@@ -170,6 +216,7 @@ function init()
   add_global_params(names)
   add_track_params(names)
   for i = 1, K.NUM_TRACKS do tracks[i] = Track.new(i) end
+  Track.on_shape_loaded = function(id) Mix.uncatch(id) end
 
   Cd.init(H)
   Cd.on_change = function() Mix.blink_bank_right() end
@@ -180,6 +227,7 @@ function init()
   Seq.on_bar = function(n)
     H.apply()
     Cd.bar(n == 0)
+    for _, t in ipairs(tracks) do t:apply_pending() end
     -- restart: realign tracks every n bars of the master clock
     for _, t in ipairs(tracks) do
       local r = Track.RESTART_BARS[t:p("restart")]
@@ -202,6 +250,7 @@ function init()
   params:bang()
   H.apply()
   Cd.save()
+  for _, t in ipairs(tracks) do t:save() end
   Mix.refresh()
   Seq.start()
 
@@ -226,7 +275,7 @@ end
 
 function enc(n, d) end
 
--- temporary step 2 screen: one row per track (polished in step 7)
+-- temporary screen: one row per track (polished in step 7)
 local function draw_track(i, y)
   local t = tracks[i]
   local muted = t:p("mute") == 1
@@ -249,6 +298,15 @@ local function draw_track(i, y)
     screen.rect(6 + (s - 1) * 2, y, 1, 4)
     screen.fill()
   end
+  -- motif underline (lane 1)
+  local motif = t:p("motif")
+  screen.level(muted and 1 or 4)
+  for s = 1, len do
+    if t.lanes[1].order[s] <= motif then
+      screen.rect(6 + (s - 1) * 2, y + 5, 1, 1)
+      screen.fill()
+    end
+  end
 
   -- density bar: fill = fader, tick = effective
   local bx, bw = 72, 10
@@ -270,12 +328,12 @@ local function draw_track(i, y)
   screen.move(94, y + 4)
   screen.text(K.DIV_SHORT[t:p("div")])
 
-  screen.level(muted and 2 or 5)
+  -- slot: blinks while a change waits for the bar, * = unsaved
+  local blink = t.pending and math.floor(util.time() * 4) % 2 == 0
+  screen.level(blink and 2 or (muted and 3 or 10))
   screen.move(112, y + 4)
-  local ty = t:p("type")
-  local label = ty == 1 and H.TENSION_SHORT[t:p("tension")]
-    or ((ty == 2 and "CH" or "DR") .. t:p("voices"))
-  screen.text(muted and "MUT" or label)
+  local shown = t:target_slot()
+  screen.text(shown .. (t:unsaved() and "*" or ""))
 end
 
 local function draw_global_meter()
@@ -315,6 +373,10 @@ local function draw_header()
     screen.text(flash)
     return
   end
+  if util.time() < Mix.hint_until then
+    screen.text(Mix.hint)
+    return
+  end
   if not Mix.synced then
     screen.text("PRESS SEND ALL ON MIDIMIX")
     return
@@ -352,6 +414,7 @@ function redraw()
   for i = 1, K.NUM_TRACKS do draw_track(i, 9 + (i - 1) * 7) end
   draw_global_meter()
   screen.update()
+  Mix.update_leds()
 end
 
 function cleanup()

@@ -17,7 +17,7 @@ local MONO, CHORD, DRUMS = 1, 2, 3
 
 function Track.new(id)
   local t = setmetatable({id = id, pos = 0, lanes = {}, last_note = nil}, Track)
-  t:roll()
+  t:init_slots()
   return t
 end
 
@@ -73,24 +73,31 @@ function Track:lane_role(l)
 end
 
 -- (re)compute ranks of one lane from its role; the random tie-breaker rr is
--- part of the step data, so re-ranking is repeatable
-function Track:rank_lane(l)
+-- part of the step data, so re-ranking is repeatable. steps in `pinned`
+-- (the motif) keep the top ranks in their current order.
+function Track:rank_lane(l, pinned)
   local lane = self.lanes[l]
   local score = ROLE_SCORE[self:lane_role(l)]
   local idx = {}
   for s = 1, K.MAX_STEPS do idx[s] = s end
-  local key = function(s) return score(s - 1) + lane.steps[s].rr * 0.99 end
+  local key = function(s)
+    if pinned and pinned[s] then return -100 + lane.steps[s].r end
+    return score(s - 1) + lane.steps[s].rr * 0.99
+  end
   table.sort(idx, function(a, b) return key(a) < key(b) end)
   for r, s in ipairs(idx) do lane.steps[s].r = r end
   lane.order_len = nil
+  self.dirty = true
 end
 
 function Track:rank_all()
   for l = 1, 8 do self:rank_lane(l) end
 end
 
--- fresh random content for every lane
+-- fresh random content for every lane (always a new table, so a slot's
+-- stored copy is never modified in place)
 function Track:roll()
+  self.lanes = {}
   for l = 1, 8 do
     local steps = {}
     for s = 1, K.MAX_STEPS do
@@ -108,6 +115,7 @@ end
 function Track:roll_legato()
   local prob = self:p("legprob") / 100
   for _, st in ipairs(self.steps) do st.leg = math.random() < prob end
+  self.dirty = true
 end
 
 -- order[s] = position of step s in the priority list of the first len steps
@@ -248,7 +256,7 @@ end
 
 -- playback ------------------------------------------------------------------
 
-function Track:reset() self.pos = 0 end
+function Track:reset() self.pos = 0; self.looped = false end
 
 function Track:release_voicing() self.voicing, self.voicing_key = nil, nil end
 
@@ -257,6 +265,10 @@ function Track:release_voicing() self.voicing, self.voicing_key = nil, nil end
 function Track:step(t, seq, rel)
   local len = self:p("len")
   self.pos = (self.pos % len) + 1
+  if self.pos == 1 then
+    if self.looped then self:drift(len) end
+    self.looped = true
+  end
   if self:p("mute") == 1 then return end
   local dens = self:density()
   local div = K.DIV_TICKS[self:p("div")]
