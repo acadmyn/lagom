@@ -183,8 +183,9 @@ return function(Track)
   end
 
   -- a re-roll or revert left behind a phrase that was never saved
+  -- (drift and shift entries are small, reversible steps)
   local function precious(self, e)
-    if e.kind == "drift" then return false end
+    if e.kind == "drift" or e.kind == "shift" then return false end
     local sl = self.slots[e.slot]
     return not (sl and lanes_equal(e.snap.lanes, sl.anchor.lanes))
   end
@@ -256,6 +257,32 @@ return function(Track)
     self:roll()
     self.slots[self.slot].work = self.lanes
     self:release_voicing()
+  end
+
+  -- shift: rotate the first `len` steps of every lane by one (dir +1 = right).
+  -- ranks travel with their steps, so the motif and density order move too.
+  -- consecutive shifts share one undo entry.
+  function Track:shift(dir)
+    local len = self:p("len")
+    if len < 2 then return end
+    local top = self.undo[#self.undo]
+    if not (top and top.kind == "shift" and top.slot == self.slot) then
+      self:push_undo("shift")
+    end
+    for _, lane in ipairs(self.lanes) do
+      local st = lane.steps
+      if dir > 0 then
+        local last = st[len]
+        for s = len, 2, -1 do st[s] = st[s - 1] end
+        st[1] = last
+      else
+        local first = st[1]
+        for s = 1, len - 1 do st[s] = st[s + 1] end
+        st[len] = first
+      end
+      lane.order_len = nil
+    end
+    self.dirty = true
   end
 
   -- drift ------------------------------------------------------------------

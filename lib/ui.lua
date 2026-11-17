@@ -138,6 +138,16 @@ local function big(x, y, s, lvl, align, scale)
   draw_text(x, y, s, lvl, scale)
 end
 
+-- stretch: step s of len spread over `span` px -> start x offset and width
+-- (minus a 1 px gap when there is room), so short sequences fill the view
+local function step_span(s, len, span)
+  local x0 = (s - 1) * span // len
+  local x1 = s * span // len
+  local w = x1 - x0
+  if w >= 2 then w = w - 1 end
+  return x0, w
+end
+
 local function dotted(y)
   for x = 0, 121, 2 do px(x, y, 2) end
 end
@@ -287,18 +297,19 @@ local function draw_row(i, y, selected)
   end
   txt(4, y, GLYPH[t:p("type")], muted and 2 or 6)
 
-  if track_flash[i] and now() < track_flash[i] then rect(9, y, len * 2 - 1, 6, 4) end
+  if track_flash[i] and now() < track_flash[i] then rect(9, y, 63, 6, 4) end
   for s = 1, len do
-    local x = 9 + (s - 1) * 2
+    local dx, w = step_span(s, len, 64)
+    local x = 9 + dx
     local d = st[s]
     local py = y + 4 - math.floor(d.h * 4 + 0.5)
     if D.C.playing and s == t.pos and not muted then
-      rect(x, y, 1, 6, d.lit and 15 or 6)
-      px(x, py, 0)
+      rect(x, y, w, 6, d.lit and 15 or 6)
+      rect(x, py, w, 1, 0)
     else
-      px(x, py, d.lit and (muted and 3 or 12) or (muted and 1 or 3))
+      rect(x, py, w, 1, d.lit and (muted and 3 or 12) or (muted and 1 or 3))
     end
-    if d.motif then px(x, y + 6, muted and 1 or 5) end
+    if d.motif then rect(x, y + 6, w, 1, muted and 1 or 5) end
   end
 
   -- density: fill = fader, tick = effective level after fader 9
@@ -349,9 +360,14 @@ local function param_list(page, rows, y, n)
     local ry = y + r * 6
     local on = first + r == sel
     if on then rect(0, ry - 1, 122, 7, 2) end
-    local p = params:lookup_param(id)
-    txt(2, ry, string.upper(p.name), on and 15 or 5)
-    txt(62, ry, string.upper(params:string(id)), on and 15 or 9)
+    if id == "shift" then
+      txt(2, ry, "SHIFT", on and 15 or 5)
+      txt(62, ry, "< E3 >", on and 15 or 9)
+    else
+      local p = params:lookup_param(id)
+      txt(2, ry, string.upper(p.name), on and 15 or 5)
+      txt(62, ry, string.upper(params:string(id)), on and 15 or 9)
+    end
   end
   -- scroll position
   if #rows > n then
@@ -379,6 +395,7 @@ local function track_rows()
       rows[#rows + 1] = pre .. "lane" .. l .. "_role"
     end
   end
+  rows[#rows + 1] = "shift"
   rows[#rows + 1] = pre .. "clear"
   return rows
 end
@@ -413,35 +430,27 @@ local function page_track()
     for l = 1, lanes do t:update_order(len, l) end
     for l = 1, lanes do
       local ly = 34 - l * 3
-      for s = 1, K.MAX_STEPS do
-        local x = 1 + (s - 1) * 3
-        local lvl = 1
-        if s <= len then
-          local on = t:is_audible(s, len, dens, l)
-          lvl = on and ((D.C.playing and s == t.pos) and 15 or 10) or 3
-        end
-        rect(x, ly, 2, 2, lvl)
+      for s = 1, len do
+        local dx, w = step_span(s, len, 96)
+        local on = t:is_audible(s, len, dens, l)
+        rect(1 + dx, ly, w, 2, on and ((D.C.playing and s == t.pos) and 15 or 10) or 3)
       end
     end
   else
-    for s = 1, K.MAX_STEPS do
-      local x = 1 + (s - 1) * 3
-      local h, lvl = 2, 1
-      if s <= len then
-        local d = st[s]
-        h = math.floor(d.h * 22 + 0.5) + 2
-        lvl = d.lit and ((D.C.playing and s == t.pos) and 15 or 10) or 3
-      else
-        h = math.floor(t.lanes[1].steps[s].p * 22 + 0.5) + 2
-      end
-      rect(x, 34 - h, 2, h, lvl)
+    for s = 1, len do
+      local dx, w = step_span(s, len, 96)
+      local d = st[s]
+      local h = math.floor(d.h * 22 + 0.5) + 2
+      rect(1 + dx, 34 - h, w, h, d.lit and ((D.C.playing and s == t.pos) and 15 or 10) or 3)
     end
   end
   for s = 1, len do
-    if st[s].motif then rect(1 + (s - 1) * 3, 36, 2, 1, 8) end
+    local dx, w = step_span(s, len, 96)
+    if st[s].motif then rect(1 + dx, 36, w, 1, 8) end
   end
   if D.C.playing and t.pos >= 1 and t.pos <= len then
-    rect(1 + (t.pos - 1) * 3, 37, 2, 1, 15)
+    local dx, w = step_span(t.pos, len, 96)
+    rect(1 + dx, 37, w, 1, 15)
   end
 
   txt(100, 10, "LEN", 4)
@@ -654,6 +663,10 @@ function UI.enc(n, d)
       UI.sel_param[UI.page] = util.clamp(UI.sel_param[UI.page] + d, 1, #rows)
     elseif n == 3 then
       local id = rows[UI.sel_param[UI.page]]
+      if id == "shift" then
+        params:set("t" .. UI.sel .. (d > 0 and "_shift_right" or "_shift_left"), 1)
+        return
+      end
       local p = params:lookup_param(id)
       if p.t == params.tTRIGGER then
         if d > 0 then params:set(id, 1) end

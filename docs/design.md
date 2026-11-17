@@ -31,6 +31,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - `fixed gate` on/off: off = random length per step, on = gate %.
   - `velocity` on/off: off = fixed `vel`, on = `vel` ± `vel spread`.
   - `legato` off / random / all. `random` sets a legato flag per step at roll time, with probability `legato prob` (default 25%); the flag is saved with the slot. Legato only ties a note into the **directly following step**, and only if that step plays: its note-off is sent just after the next step's note-on. If the next step is silent, the note keeps its normal gate.
+- **shift left / right** (params, and the `shift` row on the track page with E3) rotates the first `length` steps of every lane by one; ranks move with their steps, so the motif and density order follow. Instant; consecutive shifts share one undo entry.
 - `length` 1–32. `division` 1/32 1/16T 1/16 1/8T 1/8 1/4T 1/4 1/2 1/1 2bar. `range` 1 semitone to 4 octaves above `base note`.
 - `restart` off / 1 / 2 / 4 / 8 / 16 **bars of the master clock**, so polymeters can realign.
 
@@ -73,7 +74,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **E1** = page (main / track / harmony / clock / scenes). **E2** = select. **E3** = change. **K2** = back/cancel. **K3** = play/stop, or confirm in a dialog.
 - **Main page**: one row per track, showing:
   - the track number and type glyph
-  - a 32 × 2 px step strip with pitch as dot height (bright = playing, dim = hidden), the motif underlined, and an inverted playhead column
+  - a step strip that always spans the full width (short sequences get wider steps) with pitch as dot height (bright = playing, dim = hidden), the motif underlined, and an inverted playhead column
   - a density bar with a tick for the effective level
   - the slot number, with `*` for unsaved changes
 - **Header**: chord, progression dots, tempo, clock source, beat blip. A fader 9 meter runs along the right edge.

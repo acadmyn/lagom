@@ -151,7 +151,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 55)
+    params:add_group("track_" .. i, "track " .. i, 57)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
@@ -181,6 +181,10 @@ local function add_track_params(names)
     params:set_action(pre .. "slot_next", req("slot", function(t) return t:target_slot() + 1 end))
     params:add_trigger(pre .. "slot_prev", "slot prev")
     params:set_action(pre .. "slot_prev", req("slot", function(t) return t:target_slot() - 1 end))
+    params:add_trigger(pre .. "shift_left", "shift left")
+    params:set_action(pre .. "shift_left", on_change(function(t) t:shift(-1) end))
+    params:add_trigger(pre .. "shift_right", "shift right")
+    params:set_action(pre .. "shift_right", on_change(function(t) t:shift(1) end))
     params:add_trigger(pre .. "clear", "clear slot")
     params:set_action(pre .. "clear", on_change(function(t)
       Confirm.ask({"CLEAR T" .. i .. " SLOT " .. t:target_slot() .. "?"},
