@@ -30,7 +30,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **feel**:
   - `fixed gate` on/off: off = random length per step, on = gate %.
   - `velocity` on/off: off = fixed `vel`, on = `vel` ± `vel spread`.
-  - `legato` off / random / all. `random` sets a legato flag per step at roll time, with probability `legato prob` (default 25%); the flag is saved with the slot. A legato note-off is sent just after the next note-on.
+  - `legato` off / random / all. `random` sets a legato flag per step at roll time, with probability `legato prob` (default 25%); the flag is saved with the slot. Legato only ties a note into the **directly following step**, and only if that step plays: its note-off is sent just after the next step's note-on. If the next step is silent, the note keeps its normal gate.
 - `length` 1–32. `division` 1/32 1/16T 1/16 1/8T 1/8 1/4T 1/4 1/2 1/1 2bar. `range` 1 semitone to 4 octaves above `base note`.
 - `restart` off / 1 / 2 / 4 / 8 / 16 **bars of the master clock**, so polymeters can realign.
 

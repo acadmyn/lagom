@@ -241,13 +241,9 @@ function Track:is_legato(st)
   return mode == 3 or (mode == 2 and st.leg)
 end
 
--- steps until the next audible step (wrapping), for legato note-offs
-function Track:steps_to_next(len, density)
-  for k = 1, len do
-    local s = ((self.pos - 1 + k) % len) + 1
-    if self:is_audible(s, len, density) then return k end
-  end
-  return len
+-- legato only ties into the directly following step, and only if it plays
+function Track:next_plays(len, density)
+  return self:is_audible((self.pos % len) + 1, len, density)
 end
 
 -- playback ------------------------------------------------------------------
@@ -282,9 +278,9 @@ function Track:step(t, seq, rel)
   if not self:is_audible(self.pos, len, dens) then return end
   local st = self.steps[self.pos]
   local gate = self:gate_ticks(st, div)
-  if self:is_legato(st) then
-    -- hold until just after the next note-on of this track
-    gate = self:steps_to_next(len, dens) * div + 1
+  if self:is_legato(st) and self:next_plays(len, dens) then
+    -- hold until just after the next step's note-on
+    gate = div + 1
   end
   local vel = self:velocity(st)
 
