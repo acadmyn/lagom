@@ -17,7 +17,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 ## Harmony
 
 - A global `root` and `scale` (the musicutil list). Changes land on the next bar.
-- **Conductor**: a loop of 2–8 chords drawn from the scale. `progression` = drone / markov / preset 1…n. `chord rate` = 1/2/4/8 bars. It has its own working copy and anchor, plus `harmony drift` and `harmony gravity`.
+- **Conductor**: a loop of 1–8 chords drawn from the scale (1 = stay on the home chord). `progression` = drone / markov / preset 1…n. `chord rate` = 1/2/4/8 bars. It has its own working copy and anchor, plus `harmony drift` and `harmony gravity`.
   - Markov mode uses weighted functional moves (tonic → subdominant/dominant → tonic, occasionally deceptive or modal moves).
 - **Tension per track**: `root` / `5th` / `chord` / `scale` (strong beats biased to chord tones) / `color` (adds 7ths, 9ths and passing tones on weak beats).
 - Default templates: T1 drums, T2 bass (5th), T3 chord, T4 lead (scale), T5–T8 mono (scale).
