@@ -237,7 +237,7 @@ local function draw_track(i, y)
   end
 
   -- density bar: fill = fader, tick = effective
-  local bx, bw = 72, 16
+  local bx, bw = 72, 10
   screen.level(1)
   screen.rect(bx, y + 1, bw, 2)
   screen.fill()
@@ -248,17 +248,20 @@ local function draw_track(i, y)
   screen.rect(bx + math.min(bw - 1, math.floor(dens * bw + 0.5)), y, 1, 4)
   screen.fill()
 
-  -- sequence length
+  -- sequence length and division
   screen.level(muted and 3 or 12)
-  screen.move(99, y + 4)
+  screen.move(91, y + 4)
   screen.text_right(len)
+  screen.level(muted and 3 or 9)
+  screen.move(94, y + 4)
+  screen.text(K.DIV_SHORT[t:p("div")])
 
   screen.level(muted and 2 or 5)
-  screen.move(103, y + 4)
+  screen.move(112, y + 4)
   local ty = t:p("type")
   local label = ty == 1 and H.TENSION_SHORT[t:p("tension")]
-    or ((ty == 2 and "CHD" or "DRM") .. t:p("voices"))
-  screen.text(muted and "MUTE" or label)
+    or ((ty == 2 and "CH" or "DR") .. t:p("voices"))
+  screen.text(muted and "MUT" or label)
 end
 
 local function draw_global_meter()
