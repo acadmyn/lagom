@@ -11,7 +11,7 @@ local H = {
 }
 
 H.TENSIONS = {"root", "5th", "chord", "scale", "color"}
-H.TENSION_SHORT = {"ROOT", "5TH", "CHRD", "SCAL", "COLR"}
+H.TENSION_SHORT = {"ROT", "5TH", "CHD", "SCL", "COL"}
 
 local want_root, want_scale = 0, 1
 
