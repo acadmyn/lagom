@@ -34,6 +34,11 @@ lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony,
 - `lib/clockio.lua`: master/slave, thru, clock out ports, the `play` param, transport callbacks.
 - `lib/track.lua`: step data (pitch, velocity and gate seeds, rank), density ordering, step playback. For now it uses a fixed C major pool; that's replaced in step 3.
 - `lib/out.lua`: port connections, note-on/off with overlap counting, panic.
-- Planned (see design.md): `midimix.lua`, `harmony.lua`, `conductor.lua`, `store.lua`, `ui.lua`.
+- `lib/slots.lua`: slots, working copy vs anchor, drift/gravity, undo, pending (next bar) actions, export/import.
+- `lib/midimix.lua`, `lib/harmony.lua`, `lib/conductor.lua`, `lib/learn.lua` (drum note learn).
+- `lib/store.lua`: sets (`<data>/lagom-NN.set` next to each pset), autosave (`<data>/autosave.set`, includes lagom's params, restored at boot), scenes. Background saves yield between slots so the tick loop never stalls (>6 ms).
+- `lib/confirm.lua`: K3/K2 dialogs.
+- Fields set on `params` itself (e.g. wrapping `params.read`) survive `params:clear()` and stack across reloads; `S.unhook()` removes them in `cleanup()`.
+- Planned: `ui.lua`.
 - `include()` re-runs the file each time, so each module is included once in `lagom.lua` and passed by reference (`const.lua` is the exception, since it's stateless).
 - Never name a module or global `engine`; that name belongs to the norns audio engine.
