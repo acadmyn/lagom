@@ -11,7 +11,7 @@
 -- solo+bank right: tap play,
 --   hold save progression
 --
--- v0.3 (step 3: harmony + conductor)
+-- v0.4 (step 4: track types + feel)
 
 local K = include("lib/const")
 local MU = require "musicutil"
@@ -31,22 +31,14 @@ local function show(msg)
   flash, flash_until = msg, util.time() + 1
 end
 
--- default templates: tension, base note, range (drums/chord types in step 4)
+-- default templates: type, tension, base note, range
 local TEMPLATE = {
-  {4, 48, 24},   -- T1 (drums later)
-  {2, 36, 12},   -- T2 bass
-  {3, 48, 12},   -- T3 chord
-  {4, 60, 24},   -- T4 lead
-  {4, 48, 24}, {4, 48, 24}, {4, 60, 24}, {4, 60, 24},
+  {3, 4, 36, 24},   -- T1 drums
+  {1, 2, 36, 12},   -- T2 bass
+  {2, 3, 48, 24},   -- T3 chord
+  {1, 4, 60, 24},   -- T4 lead
+  {1, 4, 48, 24}, {1, 4, 48, 24}, {1, 4, 60, 24}, {1, 4, 60, 24},
 }
-
-local function fmt_pct(p) return p:get() .. "%" end
-
-local function fmt_range(p)
-  local v = p:get()
-  if v % 12 == 0 then return (v // 12) .. " oct" end
-  return v .. " st"
-end
 
 local function add_harmony_params()
   local function stage()
@@ -83,11 +75,34 @@ local function add_global_params(names)
   params:set_action("controller_port", function() Mix.refresh() end)
 end
 
+-- show only the params that matter for a track's type
+local PITCH_PARAMS = {"range", "tension", "base", "legato", "legprob"}
+local function update_visibility(i)
+  local pre = "t" .. i .. "_"
+  local ty = params:get(pre .. "type")
+  local drums = ty == 3
+  local function vis(id, on)
+    if on then params:show(pre .. id) else params:hide(pre .. id) end
+  end
+  vis("voices", ty ~= 1)
+  for _, id in ipairs(PITCH_PARAMS) do vis(id, not drums) end
+  for l = 1, 8 do
+    vis("lane" .. l .. "_note", drums)
+    vis("lane" .. l .. "_role", drums)
+  end
+  if _menu and _menu.rebuild_params then _menu.rebuild_params() end
+end
+
 local function add_track_params(names)
+  local note_name = function(p) return MU.note_num_to_name(p:get(), true) end
   for i = 1, K.NUM_TRACKS do
     local pre = "t" .. i .. "_"
     local tpl = TEMPLATE[i]
-    params:add_group("track_" .. i, "track " .. i, 11)
+    local function on_change(f)
+      return function(x) if tracks[i] then f(tracks[i], x) end end
+    end
+    params:add_group("track_" .. i, "track " .. i, 36)
+    -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
     params:set_action(pre .. "mute", function(x)
@@ -95,16 +110,42 @@ local function add_track_params(names)
       Mix.led_mute(i, x == 1)
     end)
     params:add_trigger(pre .. "reroll", "re-roll")
-    params:set_action(pre .. "reroll", function() tracks[i]:roll() end)
+    params:set_action(pre .. "reroll", on_change(function(t) t:roll() end))
+    -- shape
     params:add_number(pre .. "len", "length", 1, K.MAX_STEPS, 16)
     params:add_option(pre .. "div", "division", K.DIV_NAMES, K.DIV_DEFAULT)
-    params:add_number(pre .. "range", "range", 1, K.MAX_RANGE, tpl[3], fmt_range)
-    params:add_option(pre .. "tension", "tension", H.TENSIONS, tpl[1])
+    params:add_number(pre .. "range", "range", 1, K.MAX_RANGE, tpl[4], fmt_range)
     params:add_number(pre .. "gate", "gate", 5, 100, 50, fmt_pct)
+    -- setup
+    params:add_option(pre .. "type", "type", Track.TYPES, tpl[1])
+    params:set_action(pre .. "type", on_change(function(t)
+      Seq.flush_track(i)
+      t:release_voicing()
+      t:rank_all()
+      update_visibility(i)
+    end))
+    params:add_number(pre .. "voices", "voices / lanes", 1, 8, 4)
     params:add_option(pre .. "port", "port", names, 2)
     params:add_number(pre .. "ch", "channel", 1, 16, i)
-    params:add_number(pre .. "base", "base note", 0, 127, tpl[2],
-      function(p) return MU.note_num_to_name(p:get(), true) end)
+    params:add_number(pre .. "base", "base note", 0, 127, tpl[3], note_name)
+    params:add_option(pre .. "tension", "tension", H.TENSIONS, tpl[2])
+    params:add_option(pre .. "restart", "restart", Track.RESTART_NAMES, 1)
+    -- feel
+    params:add_binary(pre .. "fixgate", "fixed gate", "toggle", 1)
+    params:add_binary(pre .. "velon", "velocity", "toggle", 0)
+    params:add_number(pre .. "vel", "vel", 1, 127, 100)
+    params:add_number(pre .. "velspread", "vel spread", 0, 64, 20)
+    params:add_option(pre .. "legato", "legato", Track.LEGATO, 1)
+    params:add_number(pre .. "legprob", "legato prob", 0, 100, 25, fmt_pct)
+    params:set_action(pre .. "legprob", on_change(function(t) t:roll_legato() end))
+    -- drum lanes
+    for l = 1, 8 do
+      params:add_number(pre .. "lane" .. l .. "_note", "lane " .. l .. " note", 0, 127,
+        Track.DRUM_NOTES[l], note_name)
+      params:add_option(pre .. "lane" .. l .. "_role", "lane " .. l .. " role", Track.ROLES,
+        Track.DRUM_ROLES[l])
+      params:set_action(pre .. "lane" .. l .. "_role", on_change(function(t) t:rank_lane(l) end))
+    end
   end
 end
 
@@ -113,7 +154,6 @@ function init()
   Out.init()
   Mix.init(Out)
   Track.H = H
-  for i = 1, K.NUM_TRACKS do tracks[i] = Track.new(i) end
 
   local names = Out.port_names()
   params:add_separator("lagom", "lagom")
@@ -121,6 +161,7 @@ function init()
   add_harmony_params()
   add_global_params(names)
   add_track_params(names)
+  for i = 1, K.NUM_TRACKS do tracks[i] = Track.new(i) end
 
   Cd.init(H)
   Cd.on_change = function() Mix.blink_bank_right() end
@@ -131,6 +172,11 @@ function init()
   Seq.on_bar = function(n)
     H.apply()
     Cd.bar(n == 0)
+    -- restart: realign tracks every n bars of the master clock
+    for _, t in ipairs(tracks) do
+      local r = Track.RESTART_BARS[t:p("restart")]
+      if r > 0 and n > 0 and n % r == 0 then t:reset() end
+    end
   end
 
   -- route all midi input through one dispatcher
@@ -171,7 +217,8 @@ local function draw_track(i, y)
   local t = tracks[i]
   local muted = t:p("mute") == 1
   local len = t:p("len")
-  t:update_order(len)
+  local lanes = t:num_lanes()
+  for l = 1, lanes do t:update_order(len, l) end
   local dens = t:density()
 
   screen.level(muted and 2 or 8)
@@ -179,7 +226,8 @@ local function draw_track(i, y)
   screen.text(i)
 
   for s = 1, len do
-    local audible = t:is_audible(s, len, dens)
+    local audible = false
+    for l = 1, lanes do audible = audible or t:is_audible(s, len, dens, l) end
     local lvl = audible and 9 or 2
     if C.playing and s == t.pos then lvl = audible and 15 or 6 end
     if muted then lvl = math.min(lvl, 3) end
@@ -207,7 +255,10 @@ local function draw_track(i, y)
 
   screen.level(muted and 2 or 5)
   screen.move(103, y + 4)
-  screen.text(muted and "MUTE" or H.TENSION_SHORT[t:p("tension")])
+  local ty = t:p("type")
+  local label = ty == 1 and H.TENSION_SHORT[t:p("tension")]
+    or ((ty == 2 and "CHD" or "DRM") .. t:p("voices"))
+  screen.text(muted and "MUTE" or label)
 end
 
 local function draw_global_meter()

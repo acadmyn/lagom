@@ -1,11 +1,22 @@
 -- a sequencer track: step data + per-step playback
+-- every track has 8 lanes of 32 steps. mono and chord play lane 1; drums
+-- play lanes 1..voices, each with its own note and role-based ranking.
 local K = include("lib/const")
 
 local Track = {}
 Track.__index = Track
 
+Track.TYPES = {"mono", "chord", "drums"}
+Track.ROLES = {"kick", "snare", "hat", "perc"}
+Track.LEGATO = {"off", "random", "all"}
+Track.RESTART_NAMES = {"off", "1 bar", "2 bars", "4 bars", "8 bars", "16 bars"}
+Track.RESTART_BARS = {0, 1, 2, 4, 8, 16}
+Track.DRUM_NOTES = {36, 38, 42, 46, 39, 45, 49, 51}
+Track.DRUM_ROLES = {1, 2, 3, 4, 4, 4, 4, 4}
+local MONO, CHORD, DRUMS = 1, 2, 3
+
 function Track.new(id)
-  local t = setmetatable({id = id, pos = 0, steps = {}, order = {}, last_note = nil}, Track)
+  local t = setmetatable({id = id, pos = 0, lanes = {}, last_note = nil}, Track)
   t:roll()
   return t
 end
@@ -26,30 +37,96 @@ function Track:density()
   return util.clamp(self:p("density") / 100 + Track.global_offset(), 0, 1)
 end
 
--- fresh random content for all 32 steps
+function Track:is_drums() return self:p("type") == DRUMS end
+
+-- lanes that play: drums use `voices` lanes, everything else lane 1
+function Track:num_lanes()
+  return self:is_drums() and self:p("voices") or 1
+end
+
+-- ranking ------------------------------------------------------------------
+
+-- lower score = revealed earlier. assumes a 16th grid (4 steps per beat)
+local ROLE_SCORE = {
+  function(i)  -- kick: the one, then beat 3, then other beats, then 8ths
+    if i == 0 then return 0 end
+    if i % 8 == 0 then return 1 end
+    if i % 4 == 0 then return 2 end
+    if i % 2 == 0 then return 3 end
+    return 4
+  end,
+  function(i)  -- snare: backbeats, then ghost 16ths, avoid the downbeats
+    if i % 8 == 4 then return 0 end
+    if i % 2 == 1 then return 2 end
+    if i % 4 == 2 then return 2.5 end
+    return 4
+  end,
+  function(i)  -- hat: 8ths, then 16ths
+    return i % 2 == 0 and 0 or 1
+  end,
+  function() return 0 end,  -- perc: random
+}
+
+function Track:lane_role(l)
+  if not self:is_drums() then return 4 end
+  return self:p("lane" .. l .. "_role")
+end
+
+-- (re)compute ranks of one lane from its role; the random tie-breaker rr is
+-- part of the step data, so re-ranking is repeatable
+function Track:rank_lane(l)
+  local lane = self.lanes[l]
+  local score = ROLE_SCORE[self:lane_role(l)]
+  local idx = {}
+  for s = 1, K.MAX_STEPS do idx[s] = s end
+  local key = function(s) return score(s - 1) + lane.steps[s].rr * 0.99 end
+  table.sort(idx, function(a, b) return key(a) < key(b) end)
+  for r, s in ipairs(idx) do lane.steps[s].r = r end
+  lane.order_len = nil
+end
+
+function Track:rank_all()
+  for l = 1, 8 do self:rank_lane(l) end
+end
+
+-- fresh random content for every lane
 function Track:roll()
-  local ranks = {}
-  for i = 1, K.MAX_STEPS do ranks[i] = i end
-  for i = K.MAX_STEPS, 2, -1 do
-    local j = math.random(i)
-    ranks[i], ranks[j] = ranks[j], ranks[i]
+  for l = 1, 8 do
+    local steps = {}
+    for s = 1, K.MAX_STEPS do
+      steps[s] = {p = math.random(), v = math.random(), g = math.random(),
+                  rr = math.random(), leg = false}
+    end
+    self.lanes[l] = {steps = steps, order = {}}
   end
-  for s = 1, K.MAX_STEPS do
-    self.steps[s] = {p = math.random(), v = math.random(), g = math.random(), r = ranks[s]}
-  end
-  self.order_len = nil
+  self.steps = self.lanes[1].steps
+  self:roll_legato()
+  self:rank_all()
+end
+
+-- per-step legato flags, drawn with `legato prob`
+function Track:roll_legato()
+  local prob = self:p("legprob") / 100
+  for _, st in ipairs(self.steps) do st.leg = math.random() < prob end
 end
 
 -- order[s] = position of step s in the priority list of the first len steps
-function Track:update_order(len)
-  if self.order_len == len then return end
+function Track:update_order(len, l)
+  local lane = self.lanes[l or 1]
+  if lane.order_len == len then return end
   local idx = {}
   for s = 1, len do idx[s] = s end
-  table.sort(idx, function(a, b) return self.steps[a].r < self.steps[b].r end)
-  self.order = {}
-  for o, s in ipairs(idx) do self.order[s] = o end
-  self.order_len = len
+  table.sort(idx, function(a, b) return lane.steps[a].r < lane.steps[b].r end)
+  lane.order = {}
+  for o, s in ipairs(idx) do lane.order[s] = o end
+  lane.order_len = len
 end
+
+function Track:is_audible(s, len, density, l)
+  return self.lanes[l or 1].order[s] <= math.floor(density * len + 0.5)
+end
+
+-- pitch ---------------------------------------------------------------------
 
 -- notes from base note up to base + range whose pitch class the tension
 -- allows on this kind of beat (cached per harmony version)
@@ -59,7 +136,7 @@ function Track:pool(strong)
   local k = table.concat({base, range, tension, strong and 1 or 0, H.version}, ",")
   self.pools = self.pools or {}
   local c = self.pools[strong and 1 or 2]
-  if c and c.key == k then return c.notes end
+  if c and c.key == k then return c.notes, k end
   local pcs = H.pcs(tension, strong)
   local notes = {}
   for n = base, math.min(127, base + range) do
@@ -73,14 +150,111 @@ function Track:pool(strong)
   end
   if #notes == 0 then notes[1] = base end
   self.pools[strong and 1 or 2] = {key = k, notes = notes}
-  return notes
+  return notes, k
 end
+
+local function nearest(pool, target, taken)
+  local best, bd
+  for _, n in ipairs(pool) do
+    if not (taken and taken[n]) then
+      local d = math.abs(n - target)
+      if not bd or d < bd then best, bd = n, d end
+    end
+  end
+  return best
+end
+
+-- chord voicing: n distinct notes from the chord-tone pool. the first voicing
+-- is the lowest n notes; after that every voice moves to the nearest free note
+-- (smallest total movement), then missing chord tones replace doubled ones
+function Track:chord_notes(n)
+  local pool, pk = self:pool(true)
+  n = math.min(n, #pool)
+  local key = pk .. "/" .. n
+  if self.voicing_key == key then return self.voicing end
+
+  local prev, v = self.voicing, {}
+  if not prev or #prev ~= n then
+    for i = 1, n do v[i] = pool[i] end
+  else
+    local taken = {}
+    for i, old in ipairs(prev) do
+      v[i] = nearest(pool, old, taken)
+      taken[v[i]] = true
+    end
+    -- chord tones in importance order (root, 3rd, 5th, 7th, 9th) that exist
+    -- in the pool, as many as there are voices
+    local H = Track.H
+    local in_pool, want = {}, {}
+    for _, p in ipairs(pool) do in_pool[p % 12] = true end
+    for j = 0, 4 do
+      local pc = H.chord_tone(H.degree, j)
+      if in_pool[pc] and #want < n then want[#want + 1] = pc end
+    end
+    for _, pc in ipairs(want) do
+      local count = {}
+      for _, x in ipairs(v) do count[x % 12] = (count[x % 12] or 0) + 1 end
+      if not count[pc] then
+        -- cheapest doubled voice to move onto the missing tone
+        local bi, bn, bd
+        for i, x in ipairs(v) do
+          if count[x % 12] > 1 then
+            local cands = {}
+            for _, p in ipairs(pool) do
+              if p % 12 == pc and not taken[p] then cands[#cands + 1] = p end
+            end
+            local c = nearest(cands, x)
+            if c and (not bd or math.abs(c - x) < bd) then bi, bn, bd = i, c, math.abs(c - x) end
+          end
+        end
+        if bi then
+          taken[v[bi]] = nil
+          v[bi] = bn
+          taken[bn] = true
+        end
+      end
+    end
+  end
+  table.sort(v)
+  self.voicing, self.voicing_key = v, key
+  return v
+end
+
+-- feel ----------------------------------------------------------------------
+
+function Track:velocity(st)
+  local vel = self:p("vel")
+  if self:p("velon") == 1 then
+    vel = vel + math.floor((st.v * 2 - 1) * self:p("velspread") + 0.5)
+  end
+  return util.clamp(vel, 1, 127)
+end
+
+-- note length in ticks for one step
+function Track:gate_ticks(st, div)
+  local pct = self:p("fixgate") == 1 and self:p("gate") or (10 + st.g * 90)
+  return math.max(1, math.floor(div * pct / 100 + 0.5))
+end
+
+function Track:is_legato(st)
+  local mode = self:p("legato")
+  return mode == 3 or (mode == 2 and st.leg)
+end
+
+-- steps until the next audible step (wrapping), for legato note-offs
+function Track:steps_to_next(len, density)
+  for k = 1, len do
+    local s = ((self.pos - 1 + k) % len) + 1
+    if self:is_audible(s, len, density) then return k end
+  end
+  return len
+end
+
+-- playback ------------------------------------------------------------------
 
 function Track:reset() self.pos = 0 end
 
-function Track:is_audible(s, len, density)
-  return self.order[s] <= math.floor(density * len + 0.5)
-end
+function Track:release_voicing() self.voicing, self.voicing_key = nil, nil end
 
 -- called on each step boundary; schedules notes via seq
 -- rel = ticks since the transport origin (a step on a beat is "strong")
@@ -88,17 +262,43 @@ function Track:step(t, seq, rel)
   local len = self:p("len")
   self.pos = (self.pos % len) + 1
   if self:p("mute") == 1 then return end
-  self:update_order(len)
-  local st = self.steps[self.pos]
-  if not self:is_audible(self.pos, len, self:density()) then return end
-
-  local pool = self:pool(rel % K.PPQN == 0)
-  local note = pool[math.min(#pool, math.floor(st.p * #pool) + 1)]
-  local vel = 100
+  local dens = self:density()
   local div = K.DIV_TICKS[self:p("div")]
-  local gate = math.max(1, math.floor(div * self:p("gate") / 100 + 0.5))
-  seq.note(t, self:p("port"), self:p("ch"), note, vel, gate, self.id)
-  self.last_note = note
+  local port, ch = self:p("port"), self:p("ch")
+
+  if self:is_drums() then
+    for l = 1, self:num_lanes() do
+      self:update_order(len, l)
+      if self:is_audible(self.pos, len, dens, l) then
+        local st = self.lanes[l].steps[self.pos]
+        seq.note(t, port, ch, self:p("lane" .. l .. "_note"), self:velocity(st),
+                 self:gate_ticks(st, div), self.id)
+      end
+    end
+    return
+  end
+
+  self:update_order(len)
+  if not self:is_audible(self.pos, len, dens) then return end
+  local st = self.steps[self.pos]
+  local gate = self:gate_ticks(st, div)
+  if self:is_legato(st) then
+    -- hold until just after the next note-on of this track
+    gate = self:steps_to_next(len, dens) * div + 1
+  end
+  local vel = self:velocity(st)
+
+  if self:p("type") == CHORD then
+    for _, n in ipairs(self:chord_notes(math.max(2, self:p("voices")))) do
+      seq.note(t, port, ch, n, vel, gate, self.id)
+    end
+    self.last_note = self.voicing[1]
+  else
+    local pool = self:pool(rel % K.PPQN == 0)
+    local note = pool[math.min(#pool, math.floor(st.p * #pool) + 1)]
+    seq.note(t, port, ch, note, vel, gate, self.id)
+    self.last_note = note
+  end
 end
 
 return Track
