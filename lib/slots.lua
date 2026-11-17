@@ -383,5 +383,6 @@ return function(Track)
     elseif pd.kind == "slot" then
       if pd.arg ~= self.slot then self:load_slot(pd.arg) end
     end
+    if Track.on_applied then Track.on_applied(self, pd.kind) end
   end
 end

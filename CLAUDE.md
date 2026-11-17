@@ -39,6 +39,9 @@ lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony,
 - `lib/store.lua`: sets (`<data>/lagom-NN.set` next to each pset), autosave (`<data>/autosave.set`, includes lagom's params, restored at boot), scenes. Background saves yield between slots so the tick loop never stalls (>6 ms).
 - `lib/confirm.lua`: K3/K2 dialogs.
 - Fields set on `params` itself (e.g. wrapping `params.read`) survive `params:clear()` and stack across reloads; `S.unhook()` removes them in `cleanup()`.
-- Planned: `ui.lua`.
+- `lib/ui.lua`: pages, overlays, flashes. Draws into a Lua framebuffer (built-in 3×5 font) and sends it with one `screen.poke` per frame.
+- **Timing rules (measured in step 7):**
+  - Never call `screen.text_extents`, `screen.peek` or `screen.current_point` in the draw loop; they wait for the screen thread. Keep `screen.*` calls per frame to a handful, since each one takes a lock shared with the screen thread.
+  - The automatic Lua GC is stopped while lagom runs; `seq.lua` runs `collectgarbage("step")` after each tick, and `Seq.cleanup()` restarts it. Avoid per-frame allocations in drawing code.
 - `include()` re-runs the file each time, so each module is included once in `lagom.lua` and passed by reference (`const.lua` is the exception, since it's stateless).
 - Never name a module or global `engine`; that name belongs to the norns audio engine.

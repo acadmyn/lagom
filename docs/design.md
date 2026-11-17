@@ -78,6 +78,14 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - the slot number, with `*` for unsaved changes
 - **Header**: chord, progression dots, tempo, clock source, beat blip. A fader 9 meter runs along the right edge.
 - **Overlays**: SAVED, the global meter, confirmations (K3 yes / K2 no). Confirmations appear only on the norns, never blocking the MIDImix.
+- **Pages** (as built in step 7):
+  - main: E2 selects a track (its number is inverted), E3 steps its slot. Each row also shows length and division as numbers (the user asked for this).
+  - track: the selected track's step graph (drums: one row per lane), then a param list (E2 select, E3 change, `clear slot` at the end).
+  - harmony: progression boxes (current one filled, bar-progress line under it), a two-octave keyboard (bright = chord tones, dim = scale), then one param row (root, scale, progression, chords, chord rate, harmony drift/gravity).
+  - clock: big tempo, master/slave, playing, beat boxes, clock in/out, then a param list (tempo, mode, ports, beats per bar, controller port, clock out per connected port).
+  - scenes: 8 boxes showing each track's slot as a bar. E2/E3 select, **K3 recall, K2 store** (asks before overwriting).
+  - K2 on any page except main and scenes goes back to main.
+- **Drawing**: the whole frame is drawn in Lua into a 128×64 buffer with a built-in 3×5 font and sent with one `screen.poke`. Per-call screen drawing stalled the tick loop by up to 25 ms. Measured worst-case step jitter at 180 BPM, 8 tracks at 1/32: about 2.5 ms with the screen running, 1 ms without.
 - **Confirm before**:
   - loading a set while anchors are unsaved
   - clearing a slot

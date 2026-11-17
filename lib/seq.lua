@@ -7,6 +7,13 @@ local offs = {}       -- pending note-offs {at, p, c, n}
 local last_tick = nil
 local coro
 
+-- garbage collection: the automatic collector can stop the world for 15-40 ms
+-- (tens of thousands of small step tables), which is audible. instead the
+-- tick loop runs it in small steps right after each tick's work, when
+-- nothing is due until the next tick.
+local GC_STEP_KB = 16
+Seq.gc_max = 0          -- longest gc step seen (s), for tuning
+
 function Seq.init(out, clockio, tracks)
   Out, C, Seq.tracks = out, clockio, tracks
 end
@@ -82,15 +89,21 @@ local function loop()
     end
     for t = last_tick + 1, now do tick(t) end
     if now > last_tick then last_tick = now end
+    local t0 = util.time()
+    collectgarbage("step", GC_STEP_KB)
+    local dt = util.time() - t0
+    if dt > Seq.gc_max then Seq.gc_max = dt end
   end
 end
 
 function Seq.start()
+  collectgarbage("stop")
   coro = clock.run(loop)
 end
 
 function Seq.cleanup()
   if coro then clock.cancel(coro) end
+  collectgarbage("restart")
   Seq.stop_all()
 end
 
