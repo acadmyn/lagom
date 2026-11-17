@@ -87,7 +87,13 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 ## Persistence
 
 - A **set** holds 8 tracks × 16 slots (working copy + anchor), the conductor and scenes. It is bound to a norns pset number (`params.action_write/read`).
-- **Scenes 1–8** store every track's slot number. Recall lands on the next bar.
+- **Scenes 1–8** store every track's slot number. Recall lands on the next bar. Params: `store scene n` / `recall scene n`.
+- **Autosave** (on slot change, on exit, every 30 s) writes the whole state plus lagom's params; boot restores it, so a reboot picks up where you left off. After a restore the knobs need pickup.
+- **Confirmations** (norns screen, K3 yes / K2 no; a question from the menu jumps back to the play screen):
+  - loading a set while any slot or the progression is unsaved
+  - overwriting a set
+  - `clear slot` (the current slot gets a fresh roll as working copy and anchor; lands on the next bar)
+  - undo full: dropping a phrase left behind by a re-roll or revert that was never saved. The action itself goes ahead; "no" keeps that version in the history (outside the 16-step limit). Drift steps and saved versions drop silently.
 
 ## Params
 

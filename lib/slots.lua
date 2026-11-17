@@ -23,17 +23,42 @@ local function copy_lanes(lanes)
   return out
 end
 
-local function lanes_equal(a, b)
-  for l = 1, #a do
-    local sa, sb = a[l].steps, b[l].steps
-    for s = 1, #sa do
-      local x, y = sa[s], sb[s]
-      for _, f in ipairs(STEP_FIELDS) do
-        if x[f] ~= y[f] then return false end
-      end
+local function lane_equal(a, b)
+  local sa, sb = a.steps, b.steps
+  for s = 1, #sa do
+    local x, y = sa[s], sb[s]
+    for _, f in ipairs(STEP_FIELDS) do
+      if x[f] ~= y[f] then return false end
     end
   end
   return true
+end
+
+local function lanes_equal(a, b)
+  for l = 1, #a do
+    if not lane_equal(a[l], b[l]) then return false end
+  end
+  return true
+end
+
+-- lane <-> flat number list (for the set files): p v g rr r leg per step
+local function flat_lane(lane)
+  local f = {}
+  for _, st in ipairs(lane.steps) do
+    f[#f + 1] = st.p; f[#f + 1] = st.v; f[#f + 1] = st.g; f[#f + 1] = st.rr
+    f[#f + 1] = st.r; f[#f + 1] = st.leg and 1 or 0
+  end
+  return f
+end
+
+local function unflat_lane(f)
+  local steps = {}
+  for s = 1, #f // 6 do
+    local i = (s - 1) * 6
+    steps[s] = {p = f[i + 1], v = f[i + 2], g = f[i + 3], rr = f[i + 4],
+                r = math.tointeger(f[i + 5]) or f[i + 5], leg = f[i + 6] == 1}
+  end
+  return {steps = steps, order = {}}
 end
 
 local function shape_equal(a, b)
@@ -48,6 +73,9 @@ return function(Track)
   Track.SHAPE = SHAPE
   Track.NUM_SLOTS = NUM_SLOTS
   Track.on_shape_loaded = nil   -- callback(track id): knobs lose pickup
+  Track.on_slot_changed = nil   -- callback(track): autosave
+  Track.ask_drop = nil          -- callback(track, entry, answer(yes)): confirm
+                                -- dropping a never-saved version from undo
 
   function Track:capture_shape()
     local sh = {}
@@ -109,6 +137,17 @@ return function(Track)
     params:set("t" .. self.id .. "_slot", n, true)
     self:reset()
     self.dirty = true
+    if Track.on_slot_changed then Track.on_slot_changed(self) end
+  end
+
+  -- clear the current slot: a fresh roll becomes its working copy and anchor;
+  -- its undo history goes too
+  function Track:clear_slot()
+    for i = #self.undo, 1, -1 do
+      if self.undo[i].slot == self.slot then table.remove(self.undo, i) end
+    end
+    self:generate_slot(self.slot)
+    self:release_voicing()
   end
 
   function Track:save()
@@ -128,12 +167,63 @@ return function(Track)
     return self.unsaved_cache
   end
 
+  -- any slot: working copy differs from its anchor
+  function Track:slot_unsaved(n)
+    if n == self.slot then return self:unsaved() end
+    local sl = self.slots[n]
+    return not (lanes_equal(sl.work, sl.anchor.lanes) and shape_equal(sl.shape, sl.anchor.shape))
+  end
+
   -- undo -------------------------------------------------------------------
 
   function Track:push_undo(kind, snap)
     table.insert(self.undo, {slot = self.slot, kind = kind, pass = self.passes,
                              snap = snap or self:snapshot()})
-    if #self.undo > UNDO_MAX then table.remove(self.undo, 1) end
+    self:trim_undo()
+  end
+
+  -- a re-roll or revert left behind a phrase that was never saved
+  local function precious(self, e)
+    if e.kind == "drift" then return false end
+    local sl = self.slots[e.slot]
+    return not (sl and lanes_equal(e.snap.lanes, sl.anchor.lanes))
+  end
+
+  -- keep UNDO_MAX entries. drift steps and saved versions drop silently;
+  -- dropping a never-saved phrase asks first (one question at a time; the
+  -- history grows past the limit until it is answered). kept entries
+  -- ("no, keep it") don't count towards the limit.
+  function Track:trim_undo()
+    while true do
+      local n, oldest = 0, nil
+      for i, e in ipairs(self.undo) do
+        if not e.keep and not e.asking then
+          n = n + 1
+          oldest = oldest or i
+        end
+      end
+      if n <= UNDO_MAX then return end
+      local e = self.undo[oldest]
+      if not precious(self, e) or not Track.ask_drop then
+        table.remove(self.undo, oldest)
+      elseif self.asking then
+        return
+      else
+        e.asking, self.asking = true, e
+        Track.ask_drop(self, e, function(yes)
+          if self.asking == e then self.asking = nil end
+          e.asking = nil
+          if yes then
+            for i, x in ipairs(self.undo) do
+              if x == e then table.remove(self.undo, i); break end
+            end
+          else
+            e.keep = true
+          end
+          self:trim_undo()
+        end)
+      end
+    end
   end
 
   function Track:undo_depth()
@@ -218,9 +308,55 @@ return function(Track)
     end
   end
 
+  -- persistence ------------------------------------------------------------
+
+  -- plain tables for the set file. a working lane equal to its anchor lane
+  -- is stored as `true`
+  function Track:export_slot(n)
+    local sl = self.slots[n]
+    local work, anchor = {}, {}
+    for l, lane in ipairs(sl.anchor.lanes) do
+      anchor[l] = flat_lane(lane)
+      work[l] = lane_equal(sl.work[l], lane) or flat_lane(sl.work[l])
+    end
+    return {shape = n == self.slot and self:capture_shape() or sl.shape,
+            work = work, anchor = {shape = sl.anchor.shape, lanes = anchor}}
+  end
+
+  function Track:export()
+    local slots = {}
+    for n in pairs(self.slots) do slots[n] = self:export_slot(n) end
+    return {slot = self.slot, slots = slots}
+  end
+
+  function Track:import(d)
+    self.slots = {}
+    for n, s in pairs(d.slots or {}) do
+      local anchor, work = {}, {}
+      for l, f in ipairs(s.anchor.lanes) do anchor[l] = unflat_lane(f) end
+      for l, w in ipairs(s.work) do
+        work[l] = w == true and copy_lanes({anchor[l]})[1] or unflat_lane(w)
+      end
+      self.slots[n] = {work = work, shape = s.shape,
+                       anchor = {lanes = anchor, shape = s.anchor.shape}}
+    end
+    self.undo, self.pending, self.asking = {}, nil, nil
+    self.slot = util.clamp(d.slot or 1, 1, NUM_SLOTS)
+    if not self.slots[self.slot] then
+      self:generate_slot(self.slot)
+    else
+      self.lanes = self.slots[self.slot].work
+      self.steps = self.lanes[1].steps
+      self:apply_shape(self.slots[self.slot].shape)
+    end
+    self:release_voicing()
+    params:set("t" .. self.id .. "_slot", self.slot, true)
+    self.dirty = true
+  end
+
   -- pending actions (land on the next bar) ----------------------------------
 
-  -- kind: "reroll" | "revert" | "undo" | "slot" (arg = target slot)
+  -- kind: "reroll" | "revert" | "undo" | "clear" | "slot" (arg = target slot)
   function Track:request(kind, arg, now)
     if kind == "slot" then
       self.pending = {kind = "slot", arg = util.clamp(arg, 1, NUM_SLOTS)}
@@ -243,6 +379,7 @@ return function(Track)
     if pd.kind == "reroll" then self:do_reroll()
     elseif pd.kind == "revert" then self:do_revert()
     elseif pd.kind == "undo" then self:do_undo()
+    elseif pd.kind == "clear" then self:clear_slot()
     elseif pd.kind == "slot" then
       if pd.arg ~= self.slot then self:load_slot(pd.arg) end
     end

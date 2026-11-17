@@ -17,8 +17,10 @@
 -- solo+bank right: tap play,
 --   hold save progression
 -- solo+bank left hold: save all
+-- psets = sets (all slots),
+-- autosaved; scenes in params
 --
--- v0.5 (step 5: slots + evolve)
+-- v0.6 (step 6: persistence)
 
 local K = include("lib/const")
 local MU = require "musicutil"
@@ -31,6 +33,8 @@ local Mix = include("lib/midimix")
 local H = include("lib/harmony")
 local Cd = include("lib/conductor")
 local Learn = include("lib/learn")
+local Confirm = include("lib/confirm")
+local S = include("lib/store")
 
 local tracks = {}
 local redraw_coro
@@ -96,6 +100,24 @@ local function add_global_params(names)
     for _, t in ipairs(tracks) do t:save() end
     show("ALL TRACKS SAVED")
   end)
+  params:add_group("lagom_scenes", "scenes", 16)
+  for k = 1, 8 do
+    params:add_trigger("scene_store_" .. k, "store scene " .. k)
+    params:set_action("scene_store_" .. k, function()
+      S.store_scene(k)
+      show("SCENE " .. k .. " STORED")
+    end)
+  end
+  for k = 1, 8 do
+    params:add_trigger("scene_recall_" .. k, "recall scene " .. k)
+    params:set_action("scene_recall_" .. k, function()
+      if S.recall_scene(k, not C.playing) then
+        show("SCENE " .. k)
+      else
+        show("SCENE " .. k .. " IS EMPTY")
+      end
+    end)
+  end
 end
 
 -- show only the params that matter for a track's type
@@ -126,7 +148,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 54)
+    params:add_group("track_" .. i, "track " .. i, 55)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
@@ -156,6 +178,11 @@ local function add_track_params(names)
     params:set_action(pre .. "slot_next", req("slot", function(t) return t:target_slot() + 1 end))
     params:add_trigger(pre .. "slot_prev", "slot prev")
     params:set_action(pre .. "slot_prev", req("slot", function(t) return t:target_slot() - 1 end))
+    params:add_trigger(pre .. "clear", "clear slot")
+    params:set_action(pre .. "clear", on_change(function(t)
+      Confirm.ask({"CLEAR T" .. i .. " SLOT " .. t:target_slot() .. "?"},
+        function() t:request("clear", nil, not C.playing) end, nil, true)
+    end))
     -- shape (stored with each slot)
     local dirty = on_change(function(t) t.dirty = true end)
     params:add_number(pre .. "len", "length", 1, K.MAX_STEPS, 16)
@@ -210,6 +237,7 @@ function init()
   Track.H = H
 
   local names = Out.port_names()
+  local first_param = #params.params + 1
   params:add_separator("lagom", "lagom")
   C.add_params(names)
   add_harmony_params()
@@ -217,6 +245,13 @@ function init()
   add_track_params(names)
   for i = 1, K.NUM_TRACKS do tracks[i] = Track.new(i) end
   Track.on_shape_loaded = function(id) Mix.uncatch(id) end
+  Track.on_slot_changed = function() S.due = true end
+  Track.ask_drop = function(t, e, answer)
+    Confirm.ask({"T" .. t.id .. " UNDO IS FULL", "DROP AN UNSAVED VERSION?"},
+      function() answer(true) end, function() answer(false) end)
+  end
+  S.init(tracks, Cd, H, Confirm, first_param)
+  S.hook_psets()
 
   Cd.init(H)
   Cd.on_change = function() Mix.blink_bank_right() end
@@ -251,8 +286,13 @@ function init()
   H.apply()
   Cd.save()
   for _, t in ipairs(tracks) do t:save() end
+  if S.load_autosave() then
+    H.apply()
+    print("lagom: restored autosave")
+  end
   Mix.refresh()
   Seq.start()
+  S.start()
 
   redraw_coro = clock.run(function()
     while true do
@@ -261,11 +301,13 @@ function init()
     end
   end)
   -- handle for REPL introspection while developing
-  _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd, Learn = Learn}
+  _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd, Learn = Learn,
+            S = S, Confirm = Confirm}
   print("lagom: init ok")
 end
 
 function key(n, z)
+  if z == 1 and Confirm.key(n) then return end
   if n == 2 and z == 1 and Learn.active() then
     Learn.cancel()
   elseif n == 3 and z == 1 then
@@ -413,12 +455,16 @@ function redraw()
 
   for i = 1, K.NUM_TRACKS do draw_track(i, 9 + (i - 1) * 7) end
   draw_global_meter()
+  Confirm.draw()
   screen.update()
   Mix.update_leds()
 end
 
 function cleanup()
   if redraw_coro then clock.cancel(redraw_coro) end
+  S.stop()
+  S.autosave()
+  S.unhook()
   if C.playing and not C.is_slave() then
     for _, p in ipairs(C.out_ports()) do Out.send_byte(p, 0xFC) end
   end
