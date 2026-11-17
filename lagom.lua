@@ -189,7 +189,7 @@ local function draw_track(i, y)
   end
 
   -- density bar: fill = fader, tick = effective
-  local bx, bw = 72, 22
+  local bx, bw = 72, 16
   screen.level(1)
   screen.rect(bx, y + 1, bw, 2)
   screen.fill()
@@ -200,8 +200,13 @@ local function draw_track(i, y)
   screen.rect(bx + math.min(bw - 1, math.floor(dens * bw + 0.5)), y, 1, 4)
   screen.fill()
 
+  -- sequence length
+  screen.level(muted and 3 or 12)
+  screen.move(99, y + 4)
+  screen.text_right(len)
+
   screen.level(muted and 2 or 5)
-  screen.move(97, y + 4)
+  screen.move(103, y + 4)
   screen.text(muted and "MUTE" or H.TENSION_SHORT[t:p("tension")])
 end
 
