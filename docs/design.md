@@ -27,6 +27,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **mono**: 1 voice.
 - **chord**: 2–8 voices stacked from the current chord or scale, with voice leading.
 - **drums**: 1–8 lanes. Each lane has its own note (GM defaults 36 38 42 46 39 45 49 51), its own rhythm and a role: kick (downbeats rank first), snare (backbeats first), hat (8ths, then 16ths) or perc (random ranking). Lanes share the track's fader and channel. Drums ignore harmony.
+- **poly**: 2–8 independent melodic lines on the track's channel (set the synth part to poly). Each voice has its own pitch, velocity and gate seeds, its own random rhythm ranking, legato flags and motif, and uses the whole range (voices may cross or meet). Voices share length, division, range, tension and the MIDImix knobs. The track fader brings voices in one by one: voice 1 follows the fader, and voice n starts at (n−1)/voices of the travel, so every voice is at full density only at the top. On screen, the track page draws one mark per voice at its pitch; the main strip shows the lowest-numbered voice that plays.
 - **feel**:
   - `fixed gate` on/off: off = random length per step, on = gate %.
   - `velocity` on/off: off = fixed `vel`, on = `vel` ± `vel spread`.
