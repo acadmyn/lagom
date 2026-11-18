@@ -152,7 +152,12 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 61)
+    params:add_group("track_" .. i, "track " .. i, 62)
+    params:add_binary(pre .. "enabled", "enabled", "toggle", 1)
+    params:set_action(pre .. "enabled", function(x)
+      if x == 0 then Seq.flush_track(i) end
+      UI.layout_dirty = true
+    end)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)

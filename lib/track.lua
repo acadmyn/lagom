@@ -291,7 +291,7 @@ function Track:step(t, seq, rel)
     if self.looped then self:drift(len) end
     self.looped = true
   end
-  if self:p("mute") == 1 then return end
+  if self:p("mute") == 1 or self:p("enabled") == 0 then return end
   local dens = self:density()
   local div = K.DIV_TICKS[self:p("div")]
   local port, ch = self:p("port"), self:p("ch")
