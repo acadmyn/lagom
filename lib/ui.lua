@@ -12,7 +12,7 @@ local UI = {
 local D                 -- deps: tracks, C, H, Cd, Mix, Learn, Confirm, S, Seq, Track
 local VERSION = "V0.7"
 local PAGES = {"MAIN", "TRACK", "HARMONY", "CLOCK", "SCENES"}
-local GLYPH = {"M", "C", "D"}
+local GLYPH = {"M", "C", "D", "P"}
 
 local msg, msg_until = nil, 0             -- header message
 local saved_title, saved_sub, saved_until = nil, nil, 0
@@ -214,6 +214,13 @@ local function strip(t)
       -- drums: height = lowest lane that plays (kick at the bottom)
       for l = lanes, 1, -1 do
         if t.lanes[l].order[s] <= shown then lit, h = true, (l - 1) / 7 end
+      end
+    elseif ty == 4 then
+      -- poly: height = pitch of the lowest-numbered voice that plays
+      h = steps1[s].p
+      for l = lanes, 1, -1 do
+        local ls = math.floor(t:lane_density(dens, l, lanes) * len + 0.5)
+        if t.lanes[l].order[s] <= ls then lit, h = true, t.lanes[l].steps[s].p end
       end
     else
       lit = order1[s] <= shown
@@ -445,6 +452,25 @@ local function page_track()
         local dx, w = step_span(s, len, 96)
         local on = t:is_audible(s, len, dens, l)
         rect(1 + dx, ly, w, 2, on and ((D.C.playing and s == t.pos) and 15 or 10) or 3)
+      end
+    end
+  elseif ty == 4 then
+    -- poly: a 2 px mark per voice at its pitch; hidden notes dim, voice 1
+    -- brightest, the playing step brightest of all
+    local lanes = t:num_lanes()
+    for pass = 0, 1 do
+      for l = lanes, 1, -1 do
+        local ld = t:lane_density(dens, l, lanes)
+        for s = 1, len do
+          local on = t:is_audible(s, len, ld, l)
+          if (pass == 1) == on then
+            local dx, w = step_span(s, len, 96)
+            local y = 32 - math.floor(t.lanes[l].steps[s].p * 22 + 0.5)
+            local lv = 2
+            if on then lv = (D.C.playing and s == t.pos) and 15 or math.max(5, 11 - l) end
+            rect(1 + dx, y, w, 2, lv)
+          end
+        end
       end
     end
   else

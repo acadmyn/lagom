@@ -1,19 +1,20 @@
 -- a sequencer track: step data + per-step playback
 -- every track has 8 lanes of 32 steps. mono and chord play lane 1; drums
--- play lanes 1..voices, each with its own note and role-based ranking.
+-- play lanes 1..voices, each with its own note and role-based ranking; poly
+-- plays lanes 1..voices as independent melodic lines (own pitch and rhythm).
 local K = include("lib/const")
 
 local Track = {}
 Track.__index = Track
 
-Track.TYPES = {"mono", "chord", "drums"}
+Track.TYPES = {"mono", "chord", "drums", "poly"}
 Track.ROLES = {"kick", "snare", "hat", "perc"}
 Track.LEGATO = {"off", "random", "all"}
 Track.RESTART_NAMES = {"off", "1 bar", "2 bars", "4 bars", "8 bars", "16 bars"}
 Track.RESTART_BARS = {0, 1, 2, 4, 8, 16}
 Track.DRUM_NOTES = {36, 38, 42, 46, 39, 45, 49, 51}
 Track.DRUM_ROLES = {1, 2, 3, 4, 4, 4, 4, 4}
-local MONO, CHORD, DRUMS = 1, 2, 3
+local MONO, CHORD, DRUMS, POLY = 1, 2, 3, 4
 
 function Track.new(id)
   local t = setmetatable({id = id, pos = 0, lanes = {}, last_note = nil}, Track)
@@ -38,10 +39,22 @@ function Track:density()
 end
 
 function Track:is_drums() return self:p("type") == DRUMS end
+function Track:is_poly() return self:p("type") == POLY end
 
--- lanes that play: drums use `voices` lanes, everything else lane 1
+-- lanes that play: drums use `voices` lanes, poly at least 2, the rest lane 1
 function Track:num_lanes()
-  return self:is_drums() and self:p("voices") or 1
+  local ty = self:p("type")
+  if ty == DRUMS then return self:p("voices") end
+  if ty == POLY then return math.max(2, self:p("voices")) end
+  return 1
+end
+
+-- poly: the fader brings voices in one by one. voice l starts at
+-- (l-1)/n of the travel and reaches full density at the top
+function Track:lane_density(dens, l, n)
+  if not l or l == 1 or not self:is_poly() then return dens end
+  local start = (l - 1) / n
+  return util.clamp((dens - start) / (1 - start), 0, 1)
 end
 
 -- ranking ------------------------------------------------------------------
@@ -114,7 +127,9 @@ end
 -- per-step legato flags, drawn with `legato prob`
 function Track:roll_legato()
   local prob = self:p("legprob") / 100
-  for _, st in ipairs(self.steps) do st.leg = math.random() < prob end
+  for l = 1, 8 do
+    for _, st in ipairs(self.lanes[l].steps) do st.leg = math.random() < prob end
+  end
   self.dirty = true
 end
 
@@ -250,8 +265,8 @@ function Track:is_legato(st)
 end
 
 -- legato only ties into the directly following step, and only if it plays
-function Track:next_plays(len, density)
-  return self:is_audible((self.pos % len) + 1, len, density)
+function Track:next_plays(len, density, l)
+  return self:is_audible((self.pos % len) + 1, len, density, l)
 end
 
 -- playback ------------------------------------------------------------------
@@ -281,6 +296,24 @@ function Track:step(t, seq, rel)
         local st = self.lanes[l].steps[self.pos]
         seq.note(t, port, ch, self:p("lane" .. l .. "_note"), self:velocity(st),
                  self:gate_ticks(st, div), self.id)
+      end
+    end
+    return
+  end
+
+  if self:is_poly() then
+    local n = self:num_lanes()
+    local pool = self:pool(rel % K.PPQN == 0)
+    for l = 1, n do
+      self:update_order(len, l)
+      local ld = self:lane_density(dens, l, n)
+      if self:is_audible(self.pos, len, ld, l) then
+        local st = self.lanes[l].steps[self.pos]
+        local gate = self:gate_ticks(st, div)
+        if self:is_legato(st) and self:next_plays(len, ld, l) then gate = div + 1 end
+        local note = pool[math.min(#pool, math.floor(st.p * #pool) + 1)]
+        seq.note(t, port, ch, note, self:velocity(st), gate, self.id)
+        if l == 1 then self.last_note = note end
       end
     end
     return
