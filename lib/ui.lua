@@ -17,6 +17,8 @@ local GLYPH = {"M", "C", "D"}
 local msg, msg_until = nil, 0             -- header message
 local saved_title, saved_sub, saved_until = nil, nil, 0
 local global_until = 0
+local POPUP_TIME = 1          -- seconds a fader/knob pop-up stays up
+local PICKUP_TIME = 1.5       -- longer while a knob has not picked up
 local chord_flash_until = 0
 local track_flash = {}                    -- track id -> time
 local boot_until = 0
@@ -243,7 +245,6 @@ local function header_message()
   elseif D.Learn.active() then s = D.Learn.prompt()
   elseif now() < D.Learn.done_until then s = D.Learn.done_msg
   elseif now() < msg_until then s = msg
-  elseif now() < D.Mix.hint_until then s = D.Mix.hint
   end
   if not s then return false end
   txt(0, 1, string.upper(s), 15)
@@ -613,6 +614,26 @@ local function overlay_global()
   txt_r(bx + bw, by + 15, "+100", 4)
 end
 
+-- track fader / knob: name, big value, a bar over the param's range. while a
+-- knob has not picked up, the bar is dim, a blinking tick marks the knob and
+-- an arrow says which way to turn it.
+local function overlay_touch(T)
+  local x, y = box(104, 40)
+  txt(x + 4, y + 4, T.title, 8)
+  big(x + 100, y + 3, T.value, 15, "r")
+  local bx, bw, by = x + 6, 92, y + 19
+  rect(bx, by, bw, 6, 2)
+  local fw = math.floor(T.frac * bw + 0.5)
+  if fw > 0 then rect(bx, by + 1, fw, 4, T.knob and 6 or 13) end
+  if T.knob then
+    local kx = bx + math.floor(T.knob_frac * (bw - 1) + 0.5)
+    rect(kx, by - 2, 1, 10, blink(6) and 15 or 8)
+    txt_c(64, by + 10, T.knob, 15)
+  end
+  txt(bx, by + 10, T.lo, 4)
+  txt_r(bx + bw, by + 10, T.hi, 4)
+end
+
 local function overlay_confirm(c)
   local x, y = box(112, 36)
   txt(x + 4, y + 4, c.lines[1], 15)
@@ -645,7 +666,13 @@ function UI.redraw()
     local c = D.Confirm.queue[1]
     if c then overlay_confirm(c)
     elseif now() < saved_until then overlay_saved()
-    elseif now() < global_until then overlay_global()
+    else
+      -- whichever of master fader / track control moved last
+      local T = D.Mix.touch
+      local t_until = T.at + (T.knob and PICKUP_TIME or POPUP_TIME)
+      if now() < t_until and T.at >= global_until - 1 then overlay_touch(T)
+      elseif now() < global_until then overlay_global()
+      end
     end
   end
   screen.poke(0, 0, 128, 64, string.char(table.unpack(FB)))

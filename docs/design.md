@@ -12,7 +12,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **Slots.** Each track has 16 slots. A slot holds the 32 steps **and** length, division, range, drift, gravity and gate, so loading a slot gives you exactly what you saved. Stepping onto an empty slot generates a fresh sequence.
 - **Working copy vs anchor.** Each slot has a working copy (what plays) and an anchor (what was saved). Drift, re-roll and undo only touch the working copy. Saving is a deliberate action. "Unsaved" means working ≠ anchor. The working copy is autosaved to disk (on slot change, on exit, and every 30 s).
 - **Drift and gravity (Turing Machine style).** Drift is the chance per pass that a non-motif step mutates. Gravity is the chance that a mutated step snaps back to its anchor value. Drift writes to the working copy permanently. Undo history: 16 steps per track, covering re-rolls, drift snapshots and reverts.
-- **Pickup.** All knobs use pickup: after a slot change, a knob does nothing until it passes the stored value, then it follows. While a knob hasn't caught up, the screen shows the stored value and an arrow pointing to the knob's position. Press SEND ALL on the MIDImix at boot to sync it.
+- **Pickup.** All knobs use pickup: after a slot change, a knob does nothing until it passes the stored value, then it follows. While a knob hasn't caught up, the pop-up shows the stored value, the knob's position and an arrow (see Screen). Press SEND ALL on the MIDImix at boot to sync it.
 
 ## Harmony
 
@@ -81,6 +81,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - the slot number, with `*` for unsaved changes
 - **Header**: chord, progression dots, tempo, clock source, beat blip. A fader 9 meter runs along the right edge.
 - **Overlays**: SAVED, the global meter, confirmations (K3 yes / K2 no). Confirmations appear only on the norns, never blocking the MIDImix.
+- **Fader/knob pop-up**: moving a track fader or knob shows a box like the global meter for 1 s: `T3 LENGTH`, the value large, and a bar over the param's range with min/max labels. While a knob hasn't picked up, the bar is dim, a blinking tick marks the knob's position, `KNOB > 26` says which way to turn it, and the box stays 1.5 s. Whichever of the master fader and a track control moved last is shown.
 - **Pages** (as built in step 7):
   - main: E2 selects a track (its number is inverted), E3 steps its slot. Each row also shows length and division as numbers (the user asked for this).
   - track: the selected track's step graph (drums: one row per lane), then a param list (E2 select, E3 change, `clear slot` at the end).
