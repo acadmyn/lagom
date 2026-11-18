@@ -151,7 +151,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 59)
+    params:add_group("track_" .. i, "track " .. i, 61)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
@@ -192,6 +192,20 @@ local function add_track_params(names)
     params:add_trigger(pre .. "move_later", "move slot later")
     params:set_action(pre .. "move_later", on_change(function(t)
       if t:move_slot(1) then show("T" .. i .. " SLOT MOVED TO " .. t.slot) end
+    end))
+    params:add_number(pre .. "copy_to", "copy to slot", 1, Track.NUM_SLOTS, 2)
+    params:add_trigger(pre .. "copy", "copy slot")
+    params:set_action(pre .. "copy", on_change(function(t)
+      local n = params:get(pre .. "copy_to")
+      if n == t.slot then show("PICK ANOTHER SLOT TO COPY TO"); return end
+      local function go()
+        if t:copy_slot_to(n) then show("T" .. i .. " SLOT " .. t.slot .. " COPIED TO " .. n) end
+      end
+      if t.slots[n] then
+        Confirm.ask({"OVERWRITE T" .. i .. " SLOT " .. n .. "?"}, go, nil, true)
+      else
+        go()
+      end
     end))
     params:add_trigger(pre .. "clear", "clear slot")
     params:set_action(pre .. "clear", on_change(function(t)

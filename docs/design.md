@@ -33,6 +33,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - `legato` off / random / all. `random` sets a legato flag per step at roll time, with probability `legato prob` (default 25%); the flag is saved with the slot. Legato only ties a note into the **directly following step**, and only if that step plays: its note-off is sent just after the next step's note-on. If the next step is silent, the note keeps its normal gate.
 - **shift left / right** (params, and the `shift` row on the track page with E3) rotates the first `length` steps of every lane by one; ranks move with their steps, so the motif and density order follow. Instant; consecutive shifts share one undo entry.
 - **move slot earlier / later** (params, and the `move slot` row on the track page with E3) swaps the current slot with its neighbour, so repeated moves reorder slots like dragging an item in a list (8 → 2 pushes 2–7 up by one). The slot keeps playing, nothing is overwritten, and scenes follow the moved music.
+- **copy to slot** (params `copy to slot` + `copy slot`, and the `copy to` row on the track page: E3 picks the target, K3 copies) duplicates the current slot (working copy, anchor and shape) into the target. Asks before overwriting a slot that has content.
 - `length` 1–32. `division` 1/32 1/16T 1/16 1/8T 1/8 1/4T 1/4 1/2 1/1 2bar. `range` 1 semitone to 4 octaves above `base note`.
 - `restart` off / 1 / 2 / 4 / 8 / 16 **bars of the master clock**, so polymeters can realign.
 

@@ -370,6 +370,11 @@ local function param_list(page, rows, y, n)
       local p = params:lookup_param(id)
       txt(2, ry, string.upper(p.name), on and 15 or 5)
       txt(62, ry, string.upper(params:string(id)), on and 15 or 9)
+      if id:match("_copy_to$") then
+        local t = D.tracks[UI.sel]
+        local n = params:get(id)
+        txt(78, ry, n == t.slot and "(SAME)" or (t.slots[n] and "K3 (FULL)" or "K3"), on and 10 or 4)
+      end
     end
   end
   -- scroll position
@@ -400,6 +405,7 @@ local function track_rows()
   end
   rows[#rows + 1] = "shift"
   rows[#rows + 1] = "move"
+  rows[#rows + 1] = pre .. "copy_to"
   rows[#rows + 1] = pre .. "clear"
   return rows
 end
@@ -699,6 +705,13 @@ function UI.key(n, z)
       else
         params:set("scene_store_" .. k, 1)
       end
+      return true
+    end
+  elseif n == 3 and UI.page == 2 then
+    local rows = track_rows()
+    local id = rows[UI.sel_param[2]]
+    if id and id:match("_copy_to$") then
+      params:set("t" .. UI.sel .. "_copy", 1)
       return true
     end
   elseif n == 2 and UI.page ~= 1 then

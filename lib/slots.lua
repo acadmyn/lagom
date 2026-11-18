@@ -281,6 +281,20 @@ return function(Track)
     return true
   end
 
+  -- copy the current slot (working copy, anchor and shape) to slot n. the
+  -- target's old content and its undo history are replaced
+  function Track:copy_slot_to(n)
+    if n == self.slot or n < 1 or n > NUM_SLOTS then return false end
+    local sl = self.slots[self.slot]
+    for i = #self.undo, 1, -1 do
+      if self.undo[i].slot == n then table.remove(self.undo, i) end
+    end
+    self.slots[n] = {work = copy_lanes(self.lanes), shape = self:capture_shape(),
+                     anchor = {lanes = copy_lanes(sl.anchor.lanes), shape = sl.anchor.shape}}
+    if Track.on_slot_changed then Track.on_slot_changed(self) end
+    return true
+  end
+
   -- shift: rotate the first `len` steps of every lane by one (dir +1 = right).
   -- ranks travel with their steps, so the motif and density order move too.
   -- consecutive shifts share one undo entry.
