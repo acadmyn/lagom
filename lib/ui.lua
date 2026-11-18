@@ -7,6 +7,7 @@ local UI = {
   sel = 1,              -- selected track (main page E2, shown on the track page)
   sel_param = {1, 1, 1, 1},   -- per page: selected param row
   sel_scene = 1,
+  layout_dirty = true,  -- tracks were enabled/disabled: recompute main page rows
 }
 
 local D                 -- deps: tracks, C, H, Cd, Mix, Learn, Confirm, S, Seq, Track
@@ -223,27 +224,29 @@ local function strip(t)
   local motif = t:p("motif")
   local order1, steps1 = t.lanes[1].order, t.lanes[1].steps
   for s = 1, len do
-    local lit, h = false, 0.5
+    local lit, h, mask = false, 0.5, 0
     if ty == 3 then
       -- drums: height = lowest lane that plays (kick at the bottom)
       for l = lanes, 1, -1 do
-        if t.lanes[l].order[s] <= shown then lit, h = true, (l - 1) / 7 end
+        if t.lanes[l].order[s] <= shown then lit, h, mask = true, (l - 1) / 7, mask | (1 << l) end
       end
     elseif ty == 4 then
       -- poly: height = pitch of the lowest-numbered voice that plays
       h = steps1[s].p
       for l = lanes, 1, -1 do
         local ls = math.floor(t:lane_density(dens, l, lanes) * len + 0.5)
-        if t.lanes[l].order[s] <= ls then lit, h = true, t.lanes[l].steps[s].p end
+        if t.lanes[l].order[s] <= ls then
+          lit, h, mask = true, t.lanes[l].steps[s].p, mask | (1 << l)
+        end
       end
     else
       lit = order1[s] <= shown
       h = ty == 1 and steps1[s].p or 0.5
     end
     local o = out[s]
-    o.h, o.lit, o.motif = h, lit, order1[s] <= motif
+    o.h, o.lit, o.motif, o.mask = h, lit, order1[s] <= motif, mask
   end
-  return out, len, dens
+  return out, len, dens, lanes
 end
 
 -- header -------------------------------------------------------------------------
@@ -306,10 +309,17 @@ end
 
 -- main page ------------------------------------------------------------------
 
-local function draw_row(i, y, selected)
+-- row height `rh` (7 = compact). content is rh - 1 tall, the motif line below.
+-- rows of 10 px or more draw drum lanes and poly voices separately
+local function draw_row(i, y, selected, rh)
   local t = D.tracks[i]
   local muted = t:p("mute") == 1
-  local st, len, dens = strip(t)
+  local st, len, dens, lanes = strip(t)
+  local ch = rh - 1
+  local r = ch - 2
+  local ty = t:p("type")
+  local tall = rh >= 10 and (ty == 3 or ty == 4)
+  local playing = D.C.playing and not muted
 
   if selected then
     rect(0, y, 4, 6, muted and 4 or 10)
@@ -323,19 +333,48 @@ local function draw_row(i, y, selected)
     txt(4, y, GLYPH[t:p("type")], muted and 2 or 6)
   end
 
-  if track_flash[i] and now() < track_flash[i] then rect(9, y, 63, 6, 4) end
+  if track_flash[i] and now() < track_flash[i] then rect(9, y, 63, ch, 4) end
+  local on_lvl, off_lvl = muted and 3 or 12, muted and 1 or 3
   for s = 1, len do
     local dx, w = step_span(s, len, 64)
     local x = 9 + dx
     local d = st[s]
-    local py = y + 4 - math.floor(d.h * 4 + 0.5)
-    if D.C.playing and s == t.pos and not muted then
-      rect(x, y, w, 6, d.lit and 15 or 6)
-      rect(x, py, w, 1, 0)
+    local head = playing and s == t.pos
+    if tall then
+      if head then rect(x, y, w, ch, 4) end
+      if ty == 3 then
+        -- one row per lane, lane 1 (kick) at the bottom
+        local lh = math.max(1, ch // lanes - 1)
+        for l = 1, lanes do
+          local ly = y + ((lanes - l) * ch) // lanes
+          local lit = d.mask & (1 << l) ~= 0
+          if lit or not head then
+            rect(x, ly, w, lh, lit and (head and 15 or on_lvl) or (muted and 0 or 1))
+          end
+        end
+      else
+        -- every voice that plays at its own pitch; voice 1 dim when none do
+        if d.mask == 0 then
+          rect(x, y + r - math.floor(d.h * r + 0.5), w, 1, off_lvl)
+        else
+          for l = 1, lanes do
+            if d.mask & (1 << l) ~= 0 then
+              local py = y + r - math.floor(t.lanes[l].steps[s].p * r + 0.5)
+              rect(x, py, w, 1, head and 15 or on_lvl)
+            end
+          end
+        end
+      end
     else
-      rect(x, py, w, 1, d.lit and (muted and 3 or 12) or (muted and 1 or 3))
+      local py = y + r - math.floor(d.h * r + 0.5)
+      if head then
+        rect(x, y, w, ch, d.lit and 15 or 6)
+        rect(x, py, w, 1, 0)
+      else
+        rect(x, py, w, 1, d.lit and on_lvl or off_lvl)
+      end
     end
-    if d.motif then rect(x, y + 6, w, 1, muted and 1 or 5) end
+    if d.motif then rect(x, y + ch, w, 1, muted and 1 or 5) end
   end
 
   -- density: fill = fader, tick = effective level after fader 9
@@ -367,9 +406,45 @@ local function global_meter()
   rect(x - 1, mid, 4, 1, 8)
 end
 
+-- enabled tracks in order and their row height; rebuilt only when a track
+-- is enabled or disabled
+local shown_ids, row_h = {}, 7
+
+local function enabled(i) return params:get("t" .. i .. "_enabled") == 1 end
+
+-- nearest enabled track from i in direction dir (or i if none)
+local function next_enabled(i, dir)
+  local j = i + dir
+  while j >= 1 and j <= K.NUM_TRACKS do
+    if enabled(j) then return j end
+    j = j + dir
+  end
+  return i
+end
+
+local function relayout()
+  UI.layout_dirty = false
+  shown_ids = {}
+  for i = 1, K.NUM_TRACKS do
+    if enabled(i) then shown_ids[#shown_ids + 1] = i end
+  end
+  row_h = math.max(7, 56 // math.max(1, #shown_ids))
+  if #shown_ids > 0 and not enabled(UI.sel) then
+    local j = next_enabled(UI.sel, 1)
+    if j == UI.sel then j = next_enabled(UI.sel, -1) end
+    UI.sel = j
+  end
+end
+
 local function page_main()
   header_main()
-  for i = 1, K.NUM_TRACKS do draw_row(i, 9 + (i - 1) * 7, i == UI.sel) end
+  if #shown_ids == 0 then
+    txt_c(62, 28, "NO TRACKS ENABLED", 10)
+    txt_c(62, 36, "TURN ONE ON ON THE TRACK PAGE", 4)
+  end
+  for k, i in ipairs(shown_ids) do
+    draw_row(i, 9 + (k - 1) * row_h, i == UI.sel, row_h)
+  end
   global_meter()
 end
 
@@ -386,7 +461,10 @@ local function param_list(page, rows, y, n)
     local ry = y + r * 6
     local on = first + r == sel
     if on then rect(0, ry - 1, 122, 7, 2) end
-    if id == "shift" then
+    if id == "track" then
+      txt(2, ry, "TRACK", on and 15 or 5)
+      txt(62, ry, "< " .. UI.sel .. " >", on and 15 or 9)
+    elseif id == "shift" then
       txt(2, ry, "SHIFT", on and 15 or 5)
       txt(62, ry, "< E3 >", on and 15 or 9)
     elseif id == "move" then
@@ -395,7 +473,8 @@ local function param_list(page, rows, y, n)
     else
       local p = params:lookup_param(id)
       txt(2, ry, string.upper(p.name), on and 15 or 5)
-      local v = string.upper(params:string(id))
+      local v = p.t == params.tBINARY and (params:get(id) == 1 and "ON" or "OFF")
+                or string.upper(params:string(id))
       txt(62, ry, v, on and 15 or 9)
       if (id:match("_port$") or id == "lagom_clock_in") and not D.Out.up[params:get(id)] then
         txt(62 + width(v) + 4, ry, "OFF", 15)
@@ -423,7 +502,7 @@ local TRACK_ROWS = {
 
 local function track_rows()
   local pre = "t" .. UI.sel .. "_"
-  local rows = {}
+  local rows = {"track", pre .. "enabled"}
   for _, k in ipairs(TRACK_ROWS) do
     if params:visible(pre .. k) then rows[#rows + 1] = pre .. k end
   end
@@ -458,7 +537,8 @@ local function page_track()
   local i = UI.sel
   local t = D.tracks[i]
   local ty = t:p("type")
-  header_page("T" .. i, string.upper(D.Track.TYPES[ty]) .. "  P" .. t:p("port") .. " CH" .. t:p("ch"))
+  header_page("T" .. i, enabled(i) and
+    (string.upper(D.Track.TYPES[ty]) .. "  P" .. t:p("port") .. " CH" .. t:p("ch")) or "OFF")
   txt_r(121, 1, t:target_slot() .. (t:unsaved() and "*" or " "),
         (t.pending and blink()) and 2 or 11)
 
@@ -707,6 +787,7 @@ local DRAW = {page_main, page_track, page_harmony, page_clock, page_scenes}
 function UI.redraw()
   local changed = D.Out.poll()
   if changed then ports_changed(changed) end
+  if UI.layout_dirty then relayout() end
   table.move(ZERO, 1, 128 * 64, 1, FB)
   if now() < boot_until and not D.Mix.synced then
     boot_screen()
@@ -740,7 +821,9 @@ function UI.enc(n, d)
   if n == 1 then
     UI.page = util.clamp(UI.page + d, 1, #PAGES)
   elseif UI.page == 1 then
-    if n == 2 then UI.sel = util.clamp(UI.sel + d, 1, K.NUM_TRACKS)
+    if n == 2 then
+      local dir = d > 0 and 1 or -1
+      for _ = 1, math.abs(d) do UI.sel = next_enabled(UI.sel, dir) end
     elseif n == 3 then params:delta("t" .. UI.sel .. "_slot", d) end
   elseif UI.page == 5 then
     if n == 2 or n == 3 then UI.sel_scene = util.clamp(UI.sel_scene + d, 1, 8) end
@@ -750,7 +833,10 @@ function UI.enc(n, d)
       UI.sel_param[UI.page] = util.clamp(UI.sel_param[UI.page] + d, 1, #rows)
     elseif n == 3 then
       local id = rows[UI.sel_param[UI.page]]
-      if id == "shift" then
+      if id == "track" then
+        UI.sel = util.clamp(UI.sel + d, 1, K.NUM_TRACKS)
+        return
+      elseif id == "shift" then
         params:set("t" .. UI.sel .. (d > 0 and "_shift_right" or "_shift_left"), 1)
         return
       elseif id == "move" then
