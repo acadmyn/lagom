@@ -151,7 +151,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 57)
+    params:add_group("track_" .. i, "track " .. i, 59)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
@@ -185,6 +185,14 @@ local function add_track_params(names)
     params:set_action(pre .. "shift_left", on_change(function(t) t:shift(-1) end))
     params:add_trigger(pre .. "shift_right", "shift right")
     params:set_action(pre .. "shift_right", on_change(function(t) t:shift(1) end))
+    params:add_trigger(pre .. "move_earlier", "move slot earlier")
+    params:set_action(pre .. "move_earlier", on_change(function(t)
+      if t:move_slot(-1) then show("T" .. i .. " SLOT MOVED TO " .. t.slot) end
+    end))
+    params:add_trigger(pre .. "move_later", "move slot later")
+    params:set_action(pre .. "move_later", on_change(function(t)
+      if t:move_slot(1) then show("T" .. i .. " SLOT MOVED TO " .. t.slot) end
+    end))
     params:add_trigger(pre .. "clear", "clear slot")
     params:set_action(pre .. "clear", on_change(function(t)
       Confirm.ask({"CLEAR T" .. i .. " SLOT " .. t:target_slot() .. "?"},
@@ -254,6 +262,7 @@ function init()
   Track.on_shape_loaded = function(id) Mix.uncatch(id) end
   Track.on_slot_changed = function() S.due = true end
   Track.on_applied = function(t) UI.track_changed(t.id) end
+  Track.on_slots_swapped = function(t, a, b) S.swap_slots(t.id, a, b) end
   Track.ask_drop = function(t, e, answer)
     Confirm.ask({"T" .. t.id .. " UNDO IS FULL", "DROP AN UNSAVED VERSION?"},
       function() answer(true) end, function() answer(false) end)

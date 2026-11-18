@@ -74,6 +74,7 @@ return function(Track)
   Track.NUM_SLOTS = NUM_SLOTS
   Track.on_shape_loaded = nil   -- callback(track id): knobs lose pickup
   Track.on_slot_changed = nil   -- callback(track): autosave
+  Track.on_slots_swapped = nil  -- callback(track, a, b): scenes follow
   Track.ask_drop = nil          -- callback(track, entry, answer(yes)): confirm
                                 -- dropping a never-saved version from undo
 
@@ -257,6 +258,27 @@ return function(Track)
     self:roll()
     self.slots[self.slot].work = self.lanes
     self:release_voicing()
+  end
+
+  -- move the current slot one position (dir -1 = earlier, +1 = later) by
+  -- swapping it with its neighbour; repeated moves reorder like dragging an
+  -- item in a list. the content keeps playing; nothing is overwritten.
+  function Track:move_slot(dir)
+    local a = self.slot
+    local b = a + dir
+    if b < 1 or b > NUM_SLOTS then return false end
+    self.slots[a], self.slots[b] = self.slots[b], self.slots[a]
+    for _, e in ipairs(self.undo) do
+      if e.slot == a then e.slot = b elseif e.slot == b then e.slot = a end
+    end
+    if self.pending and self.pending.kind == "slot" then
+      if self.pending.arg == a then self.pending.arg = b
+      elseif self.pending.arg == b then self.pending.arg = a end
+    end
+    self.slot = b
+    params:set("t" .. self.id .. "_slot", b, true)
+    if Track.on_slots_swapped then Track.on_slots_swapped(self, a, b) end
+    return true
   end
 
   -- shift: rotate the first `len` steps of every lane by one (dir +1 = right).

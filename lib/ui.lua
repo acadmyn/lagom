@@ -363,6 +363,9 @@ local function param_list(page, rows, y, n)
     if id == "shift" then
       txt(2, ry, "SHIFT", on and 15 or 5)
       txt(62, ry, "< E3 >", on and 15 or 9)
+    elseif id == "move" then
+      txt(2, ry, "MOVE SLOT", on and 15 or 5)
+      txt(62, ry, "< " .. D.tracks[UI.sel].slot .. " >", on and 15 or 9)
     else
       local p = params:lookup_param(id)
       txt(2, ry, string.upper(p.name), on and 15 or 5)
@@ -396,6 +399,7 @@ local function track_rows()
     end
   end
   rows[#rows + 1] = "shift"
+  rows[#rows + 1] = "move"
   rows[#rows + 1] = pre .. "clear"
   return rows
 end
@@ -665,6 +669,9 @@ function UI.enc(n, d)
       local id = rows[UI.sel_param[UI.page]]
       if id == "shift" then
         params:set("t" .. UI.sel .. (d > 0 and "_shift_right" or "_shift_left"), 1)
+        return
+      elseif id == "move" then
+        params:set("t" .. UI.sel .. (d > 0 and "_move_later" or "_move_earlier"), 1)
         return
       end
       local p = params:lookup_param(id)
