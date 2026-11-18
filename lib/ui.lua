@@ -177,7 +177,21 @@ function UI.init(deps)
   boot_until = now() + 6
 end
 
-function UI.message(s) msg, msg_until = s, now() + 1 end
+function UI.message(s, secs) msg, msg_until = s, now() + (secs or 1) end
+
+-- a device came or went: tell if any track (or the controller) uses it
+local function ports_changed(changed)
+  for _, p in ipairs(changed) do
+    local used = p == D.Mix.port()
+    for _, t in ipairs(D.tracks) do used = used or t:p("port") == p end
+    if used then
+      UI.message("P" .. p .. " " .. midi.vports[p].name .. (D.Out.up[p] and " ON" or " OFF"), 2)
+    end
+  end
+end
+
+-- the track's port has no device
+local function port_down(t) return not D.Out.up[t:p("port")] end
 
 function UI.saved(title, sub)
   saved_title, saved_sub, saved_until = title, sub, now() + 0.8
@@ -303,7 +317,11 @@ local function draw_row(i, y, selected)
   else
     txt(0, y, i, muted and 3 or 10)
   end
-  txt(4, y, GLYPH[t:p("type")], muted and 2 or 6)
+  if port_down(t) then
+    txt(4, y, "!", 15)
+  else
+    txt(4, y, GLYPH[t:p("type")], muted and 2 or 6)
+  end
 
   if track_flash[i] and now() < track_flash[i] then rect(9, y, 63, 6, 4) end
   for s = 1, len do
@@ -377,7 +395,11 @@ local function param_list(page, rows, y, n)
     else
       local p = params:lookup_param(id)
       txt(2, ry, string.upper(p.name), on and 15 or 5)
-      txt(62, ry, string.upper(params:string(id)), on and 15 or 9)
+      local v = string.upper(params:string(id))
+      txt(62, ry, v, on and 15 or 9)
+      if (id:match("_port$") or id == "lagom_clock_in") and not D.Out.up[params:get(id)] then
+        txt(62 + width(v) + 4, ry, "OFF", 15)
+      end
       if id:match("_copy_to$") then
         local t = D.tracks[UI.sel]
         local n = params:get(id)
@@ -683,6 +705,8 @@ end
 local DRAW = {page_main, page_track, page_harmony, page_clock, page_scenes}
 
 function UI.redraw()
+  local changed = D.Out.poll()
+  if changed then ports_changed(changed) end
   table.move(ZERO, 1, 128 * 64, 1, FB)
   if now() < boot_until and not D.Mix.synced then
     boot_screen()

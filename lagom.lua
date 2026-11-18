@@ -327,13 +327,20 @@ function init()
   -- a re-plugged controller has lost its led state: push it again once the
   -- device is up (norns resets midi.add when the script exits)
   midi.add = function(dev)
+    Out.devices_changed()
     if dev.port ~= nil and dev.port == Mix.port() then
       clock.run(function() clock.sleep(0.5); Mix.refresh() end)
     end
   end
+  midi.remove = function() Out.devices_changed() end
+  local name_ids, clk_ids = {"controller_port", "lagom_clock_in"}, {}
+  for i = 1, K.NUM_TRACKS do name_ids[#name_ids + 1] = "t" .. i .. "_port" end
+  for i = 1, 16 do clk_ids[i] = "lagom_clk_out_" .. i end
+  Out.name_params(name_ids, clk_ids)
+  Out.poll()
   Seq.start()
   S.start()
-  UI.init({tracks = tracks, C = C, H = H, Cd = Cd, Mix = Mix, Learn = Learn,
+  UI.init({tracks = tracks, Out = Out, C = C, H = H, Cd = Cd, Mix = Mix, Learn = Learn,
            Confirm = Confirm, S = S, Seq = Seq, Track = Track})
 
   redraw_coro = clock.run(function()
