@@ -322,6 +322,13 @@ function init()
     print("lagom: restored autosave")
   end
   Mix.refresh()
+  -- a re-plugged controller has lost its led state: push it again once the
+  -- device is up (norns resets midi.add when the script exits)
+  midi.add = function(dev)
+    if dev.port ~= nil and dev.port == Mix.port() then
+      clock.run(function() clock.sleep(0.5); Mix.refresh() end)
+    end
+  end
   Seq.start()
   S.start()
   UI.init({tracks = tracks, C = C, H = H, Cd = Cd, Mix = Mix, Learn = Learn,
