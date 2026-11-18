@@ -10,7 +10,7 @@ lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony,
 
 1. Implement **one step (issue) at a time**, in small increments.
 2. Deploy with `tools/deploy.sh`. It rsyncs to `we@norns.tretiotre.local:~/dust/code/lagom` and reloads the script through `tools/repl.py`, which prints matron output. Look for `lagom: init ok` and the absence of errors or `MISSING INCLUDE`.
-3. Smoke-test from the REPL: `python3 tools/repl.py 'print(_lagom.tracks[1].pos)'`. The `_lagom` global exposes tracks, C (clockio), Seq, Out, Mix, H, Cd, Learn, S, Confirm and UI. The REPL runs **each line as its own chunk**, so keep `local`s and multi-statement snippets on one line. Simulate the MIDImix with `_lagom.Mix.event({0xB0, cc, val})`. Screenshot with `screen.export_screenshot("name")` (lands in `~/dust/data/lagom/name.png`).
+3. Smoke-test from the REPL: `python3 tools/repl.py 'print(_lagom.tracks[1].pos)'`. The `_lagom` global exposes tracks, C (clockio), Seq, Out, Mix, H, Cd, Learn, S, Confirm and UI. The REPL runs **each line as its own chunk**, so keep `local`s and multi-statement snippets on one line. Simulate the MIDImix with `_lagom.Mix.event({0xB0, cc, val})`. Screenshot with `screen.export_screenshot("name")` (lands in `~/dust/data/lagom/name.png`). A script load wipes user globals, so never keep a REPL patch of a core function (e.g. a saved original `clock.run`) in a global; store it on the module table, and undo it afterwards.
 4. Give the user a **"test by ear" checklist**, then wait for their feedback before the next step.
 5. Commit, push, comment on or close issues, and merge PRs; the user allows all of these without asking. Commit messages end with the attribution lines from the system reminder.
 
@@ -45,5 +45,6 @@ lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony,
 - **Timing rules (measured in step 7):**
   - Never call `screen.text_extents`, `screen.peek` or `screen.current_point` in the draw loop; they wait for the screen thread. Keep `screen.*` calls per frame to a handful, since each one takes a lock shared with the screen thread.
   - The automatic Lua GC is stopped while lagom runs; `seq.lua` runs `collectgarbage("step")` after each tick, and `Seq.cleanup()` restarts it. Avoid per-frame allocations in drawing code.
+- **Keep `cleanup()` fast (a few ms).** norns cancels its own clock threads only after it, and a wake-up queued meanwhile errors on resume (#17). lagom stops its coroutines first, saves with warm caches, and briefly guards `clock.resume`. Call `Track:touch()` (never set `dirty` directly) whenever step data or shape changes: the save cache keys the current slot on its revision.
 - `include()` re-runs the file each time, so each module is included once in `lagom.lua` and passed by reference (`const.lua` is the exception, since it's stateless).
 - Never name a module or global `engine`; that name belongs to the norns audio engine.

@@ -20,6 +20,11 @@ local function set_path(number) return dir() .. norns.state.shortname .. "-" .. 
 
 -- serializer ------------------------------------------------------------------
 
+-- flat number list (step data): one format call
+local function fmt_flat(v)
+  return string.format("{" .. string.rep("%.6g,", #v) .. "}", table.unpack(v))
+end
+
 local function ser(v, out)
   local t = type(v)
   if v == nil then
@@ -30,9 +35,10 @@ local function ser(v, out)
     out[#out + 1] = tostring(v)
   elseif t == "string" then
     out[#out + 1] = string.format("%q", v)
+  elseif t == "table" and v.__raw then
+    out[#out + 1] = v.__raw   -- text formatted earlier (Track:export_slot)
   elseif t == "table" and #v > 8 and type(v[1]) == "number" then
-    -- flat number list (step data): one format call
-    out[#out + 1] = string.format("{" .. string.rep("%.6g,", #v) .. "}", table.unpack(v))
+    out[#out + 1] = fmt_flat(v)
   elseif t == "table" then
     out[#out + 1] = "{"
     local n = #v
@@ -103,21 +109,52 @@ local function param_values()
   return v
 end
 
+-- lagom's params as {__raw = text}, reused while every value is unchanged
+local pv_last, pv_count, pv_raw
+local function params_raw()
+  local v = param_values()
+  local same = pv_last ~= nil
+  if same then
+    local n = 0
+    for k, x in pairs(v) do
+      n = n + 1
+      if pv_last[k] ~= x then same = false; break end
+    end
+    same = same and n == pv_count
+  end
+  if not same then
+    local out = {}
+    ser(v, out)
+    pv_raw = {__raw = table.concat(out)}
+    local n = 0
+    for _ in pairs(v) do n = n + 1 end
+    pv_last, pv_count = v, n
+  end
+  return pv_raw
+end
+
 -- encoded text per slot. a slot that isn't playing can't change, so its
--- text is reused until the slot's tables are replaced
+-- text is reused until the slot's tables are replaced, or for the current
+-- slot (edited in place) until the track's revision changes (Track:touch)
 local slot_cache = setmetatable({}, {__mode = "k"})
+-- per slot: lane texts, reused while a lane's numbers are unchanged
+local lane_cache = setmetatable({}, {__mode = "k"})
 
 local function slot_text(t, n)
   local sl = t.slots[n]
   local c = slot_cache[sl]
-  if n ~= t.slot and c and c.work == sl.work and c.anchor == sl.anchor
-     and c.shape == sl.shape then
+  local cur = n == t.slot
+  if c and c.work == sl.work and c.anchor == sl.anchor and c.shape == sl.shape
+     and c.cur == cur and (not cur or c.rev == t.rev) then
     return c.text, true
   end
+  local lc = lane_cache[sl]
+  if not lc then lc = {a = {}, w = {}}; lane_cache[sl] = lc end
   local out = {}
-  ser(t:export_slot(n), out)
+  ser(t:export_slot(n, lc, fmt_flat), out)
   local text = table.concat(out)
-  slot_cache[sl] = {work = sl.work, anchor = sl.anchor, shape = sl.shape, text = text}
+  slot_cache[sl] = {work = sl.work, anchor = sl.anchor, shape = sl.shape, text = text,
+                    cur = cur, rev = t.rev}
   return text, false
 end
 
@@ -138,7 +175,7 @@ local function encode_set(with_params, yield)
     parts[#parts + 1] = "}},"
   end
   local out = {}
-  ser({scenes = S.scenes, params = with_params and param_values() or nil,
+  ser({scenes = S.scenes, params = with_params and params_raw() or nil,
        conductor = {working = Cd.working, anchor = Cd.anchor, idx = Cd.idx}}, out)
   parts[#parts + 1] = "},"
   parts[#parts + 1] = table.concat(out):sub(2)
@@ -196,10 +233,14 @@ function S.load_autosave()
   return true
 end
 
--- autosave every 30 s, and within a second of a slot change
+-- autosave every 30 s, and within a second of a slot change. the first one
+-- runs right after boot, so the text caches are warm and cleanup's save (on
+-- reload or exit) stays a few ms when nothing changed (#17)
 function S.start()
   S.coro = clock.run(function()
     local elapsed = 0
+    clock.sleep(1)
+    S.autosave(function() clock.sleep(0.002) end)
     while true do
       clock.sleep(1)
       elapsed = elapsed + 1
