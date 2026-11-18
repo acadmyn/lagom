@@ -22,6 +22,13 @@ function Track.new(id)
   return t
 end
 
+-- any change to step data or shape: refresh the unsaved check, and bump
+-- the revision the save cache keys the current slot on (lib/store.lua)
+function Track:touch()
+  self.dirty = true
+  self.rev = (self.rev or 0) + 1
+end
+
 function Track:p(name) return params:get("t" .. self.id .. "_" .. name) end
 
 -- fader 9: raw position -100..100 -> offset -1..1 with a centre deadzone that
@@ -100,7 +107,7 @@ function Track:rank_lane(l, pinned)
   table.sort(idx, function(a, b) return key(a) < key(b) end)
   for r, s in ipairs(idx) do lane.steps[s].r = r end
   lane.order_len = nil
-  self.dirty = true
+  self:touch()
 end
 
 function Track:rank_all()
@@ -130,7 +137,7 @@ function Track:roll_legato()
   for l = 1, 8 do
     for _, st in ipairs(self.lanes[l].steps) do st.leg = math.random() < prob end
   end
-  self.dirty = true
+  self:touch()
 end
 
 -- order[s] = position of step s in the priority list of the first len steps

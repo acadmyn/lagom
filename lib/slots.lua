@@ -51,6 +51,32 @@ local function flat_lane(lane)
   return f
 end
 
+-- true when a lane still holds exactly the numbers in flat list f
+local function lane_matches(lane, f)
+  local steps = lane.steps
+  if #f ~= #steps * 6 then return false end
+  for s = 1, #steps do
+    local st, i = steps[s], (s - 1) * 6
+    if f[i + 1] ~= st.p or f[i + 2] ~= st.v or f[i + 3] ~= st.g or f[i + 4] ~= st.rr
+       or f[i + 5] ~= st.r or f[i + 6] ~= (st.leg and 1 or 0) then
+      return false
+    end
+  end
+  return true
+end
+
+-- a lane as {__raw = text} for the serializer, reusing the cached text while
+-- the lane's numbers are unchanged (formatting is the slow part of a save)
+local function lane_raw(lane, cache, l, fmt)
+  local e = cache[l]
+  if not (e and lane_matches(lane, e.flat)) then
+    local f = flat_lane(lane)
+    e = {flat = f, raw = {__raw = fmt(f)}}
+    cache[l] = e
+  end
+  return e.raw
+end
+
 local function unflat_lane(f)
   local steps = {}
   for s = 1, #f // 6 do
@@ -100,7 +126,7 @@ return function(Track)
     self.slots[self.slot].work = self.lanes
     self:release_voicing()
     self:apply_shape(snap.shape)
-    self.dirty = true
+    self:touch()
   end
 
   -- slots ------------------------------------------------------------------
@@ -119,7 +145,7 @@ return function(Track)
     local shape = self:capture_shape()
     self.slots[n] = {work = self.lanes, shape = shape,
                      anchor = {lanes = copy_lanes(self.lanes), shape = shape}}
-    self.dirty = true
+    self:touch()
   end
 
   function Track:load_slot(n)
@@ -137,7 +163,7 @@ return function(Track)
     end
     params:set("t" .. self.id .. "_slot", n, true)
     self:reset()
-    self.dirty = true
+    self:touch()
     if Track.on_slot_changed then Track.on_slot_changed(self) end
   end
 
@@ -155,7 +181,7 @@ return function(Track)
     local snap = self:snapshot()
     self.slots[self.slot].anchor = snap
     self.slots[self.slot].shape = snap.shape
-    self.dirty = true
+    self:touch()
   end
 
   function Track:unsaved()
@@ -318,7 +344,7 @@ return function(Track)
       end
       lane.order_len = nil
     end
-    self.dirty = true
+    self:touch()
   end
 
   -- drift ------------------------------------------------------------------
@@ -366,7 +392,7 @@ return function(Track)
     end
 
     if changed then
-      self.dirty = true
+      self:touch()
       if before then self:push_undo("drift", before) end
     end
   end
@@ -375,12 +401,19 @@ return function(Track)
 
   -- plain tables for the set file. a working lane equal to its anchor lane
   -- is stored as `true`
-  function Track:export_slot(n)
+  -- with `cache` ({a = {}, w = {}}, kept by the caller per slot) and `fmt`
+  -- (flat list -> text), lanes come back as {__raw = text}
+  function Track:export_slot(n, cache, fmt)
     local sl = self.slots[n]
     local work, anchor = {}, {}
     for l, lane in ipairs(sl.anchor.lanes) do
-      anchor[l] = flat_lane(lane)
-      work[l] = lane_equal(sl.work[l], lane) or flat_lane(sl.work[l])
+      if cache then
+        anchor[l] = lane_raw(lane, cache.a, l, fmt)
+        work[l] = lane_equal(sl.work[l], lane) or lane_raw(sl.work[l], cache.w, l, fmt)
+      else
+        anchor[l] = flat_lane(lane)
+        work[l] = lane_equal(sl.work[l], lane) or flat_lane(sl.work[l])
+      end
     end
     return {shape = n == self.slot and self:capture_shape() or sl.shape,
             work = work, anchor = {shape = sl.anchor.shape, lanes = anchor}}
@@ -414,7 +447,7 @@ return function(Track)
     end
     self:release_voicing()
     params:set("t" .. self.id .. "_slot", self.slot, true)
-    self.dirty = true
+    self:touch()
   end
 
   -- pending actions (land on the next bar) ----------------------------------

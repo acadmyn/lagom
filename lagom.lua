@@ -213,7 +213,7 @@ local function add_track_params(names)
         function() t:request("clear", nil, not C.playing) end, nil, true)
     end))
     -- shape (stored with each slot)
-    local dirty = on_change(function(t) t.dirty = true end)
+    local dirty = on_change(function(t) t:touch() end)
     params:add_number(pre .. "len", "length", 1, K.MAX_STEPS, 16)
     params:add_option(pre .. "div", "division", K.DIV_NAMES, K.DIV_DEFAULT)
     params:add_number(pre .. "range", "range", 1, K.MAX_RANGE, tpl[4], fmt_range)
@@ -363,9 +363,29 @@ function redraw()
   Mix.update_leds()
 end
 
+-- norns resumes a clock thread by id even after it was cancelled when its
+-- wake-up was already queued, and core/clock.lua then errors "resume ...
+-- thread expected" (#17). on reload that hits the threads cancelled during
+-- teardown (ours and the system ones clock.cleanup stops). for 2 s, skip
+-- resumes of threads that no longer exist, then put the original back
+local function guard_stale_resumes()
+  local orig, expires = clock.resume, util.time() + 2
+  local guard
+  guard = function(id, ...)
+    if util.time() > expires and clock.resume == guard then clock.resume = orig end
+    if clock.threads[id] == nil then return end
+    return orig(id, ...)
+  end
+  clock.resume = guard
+end
+
+-- keep cleanup fast (a few ms): our coroutines stop first, and the autosave
+-- runs while the GC is still stopped, with warm caches (lib/store.lua)
 function cleanup()
+  guard_stale_resumes()
   if redraw_coro then clock.cancel(redraw_coro) end
   S.stop()
+  Seq.stop()
   S.autosave()
   S.unhook()
   if C.playing and not C.is_slave() then

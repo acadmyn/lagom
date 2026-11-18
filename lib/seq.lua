@@ -101,8 +101,13 @@ function Seq.start()
   coro = clock.run(loop)
 end
 
+-- stop the tick loop (cleanup: before any slow work, see lagom.lua)
+function Seq.stop()
+  if coro then clock.cancel(coro); coro = nil end
+end
+
 function Seq.cleanup()
-  if coro then clock.cancel(coro) end
+  Seq.stop()
   collectgarbage("restart")
   Seq.stop_all()
 end
