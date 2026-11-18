@@ -2,7 +2,11 @@
 local Out = {}
 
 Out.ports = {}
+Out.up = {}         -- port -> a device is plugged in (refreshed by Out.poll)
 local active = {}   -- key -> count of overlapping note-ons
+local dirty = true  -- devices changed since the last poll
+local name_ids = {} -- option params listing port names
+local clk_ids = {}  -- port -> param whose name includes the port name
 
 local function key(p, c, n) return p * 4096 + c * 128 + n end
 
@@ -19,6 +23,36 @@ function Out.port_names()
     t[i] = i .. ": " .. n
   end
   return t
+end
+
+-- params to relabel when devices come and go
+function Out.name_params(option_ids, named_ids) name_ids, clk_ids = option_ids, named_ids end
+
+-- call from midi.add / midi.remove. norns updates `connected` only after
+-- midi.remove returns, so the refresh waits for the next Out.poll
+function Out.devices_changed() dirty = true end
+
+-- once per frame. cheap unless devices changed; then refreshes the port
+-- names and `up`, and returns a list of ports that went down or up (or nil)
+function Out.poll()
+  if not dirty then return nil end
+  dirty = false
+  local names = Out.port_names()
+  for _, id in ipairs(name_ids) do
+    local p = params:lookup_param(id)
+    for i = 1, 16 do p.options[i] = names[i] end
+  end
+  for i, id in pairs(clk_ids) do params:lookup_param(id).name = "→ " .. names[i] end
+  local changed
+  for i = 1, 16 do
+    local up = midi.vports[i].connected == true
+    if Out.up[i] ~= nil and Out.up[i] ~= up then
+      changed = changed or {}
+      changed[#changed + 1] = i
+    end
+    Out.up[i] = up
+  end
+  return changed
 end
 
 function Out.note_on(p, c, n, v)
