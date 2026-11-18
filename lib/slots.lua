@@ -74,6 +74,7 @@ return function(Track)
   Track.NUM_SLOTS = NUM_SLOTS
   Track.on_shape_loaded = nil   -- callback(track id): knobs lose pickup
   Track.on_slot_changed = nil   -- callback(track): autosave
+  Track.on_slots_swapped = nil  -- callback(track, a, b): scenes follow
   Track.ask_drop = nil          -- callback(track, entry, answer(yes)): confirm
                                 -- dropping a never-saved version from undo
 
@@ -183,8 +184,9 @@ return function(Track)
   end
 
   -- a re-roll or revert left behind a phrase that was never saved
+  -- (drift and shift entries are small, reversible steps)
   local function precious(self, e)
-    if e.kind == "drift" then return false end
+    if e.kind == "drift" or e.kind == "shift" then return false end
     local sl = self.slots[e.slot]
     return not (sl and lanes_equal(e.snap.lanes, sl.anchor.lanes))
   end
@@ -256,6 +258,67 @@ return function(Track)
     self:roll()
     self.slots[self.slot].work = self.lanes
     self:release_voicing()
+  end
+
+  -- move the current slot one position (dir -1 = earlier, +1 = later) by
+  -- swapping it with its neighbour; repeated moves reorder like dragging an
+  -- item in a list. the content keeps playing; nothing is overwritten.
+  function Track:move_slot(dir)
+    local a = self.slot
+    local b = a + dir
+    if b < 1 or b > NUM_SLOTS then return false end
+    self.slots[a], self.slots[b] = self.slots[b], self.slots[a]
+    for _, e in ipairs(self.undo) do
+      if e.slot == a then e.slot = b elseif e.slot == b then e.slot = a end
+    end
+    if self.pending and self.pending.kind == "slot" then
+      if self.pending.arg == a then self.pending.arg = b
+      elseif self.pending.arg == b then self.pending.arg = a end
+    end
+    self.slot = b
+    params:set("t" .. self.id .. "_slot", b, true)
+    if Track.on_slots_swapped then Track.on_slots_swapped(self, a, b) end
+    return true
+  end
+
+  -- copy the current slot (working copy, anchor and shape) to slot n. the
+  -- target's old content and its undo history are replaced
+  function Track:copy_slot_to(n)
+    if n == self.slot or n < 1 or n > NUM_SLOTS then return false end
+    local sl = self.slots[self.slot]
+    for i = #self.undo, 1, -1 do
+      if self.undo[i].slot == n then table.remove(self.undo, i) end
+    end
+    self.slots[n] = {work = copy_lanes(self.lanes), shape = self:capture_shape(),
+                     anchor = {lanes = copy_lanes(sl.anchor.lanes), shape = sl.anchor.shape}}
+    if Track.on_slot_changed then Track.on_slot_changed(self) end
+    return true
+  end
+
+  -- shift: rotate the first `len` steps of every lane by one (dir +1 = right).
+  -- ranks travel with their steps, so the motif and density order move too.
+  -- consecutive shifts share one undo entry.
+  function Track:shift(dir)
+    local len = self:p("len")
+    if len < 2 then return end
+    local top = self.undo[#self.undo]
+    if not (top and top.kind == "shift" and top.slot == self.slot) then
+      self:push_undo("shift")
+    end
+    for _, lane in ipairs(self.lanes) do
+      local st = lane.steps
+      if dir > 0 then
+        local last = st[len]
+        for s = len, 2, -1 do st[s] = st[s - 1] end
+        st[1] = last
+      else
+        local first = st[1]
+        for s = 1, len - 1 do st[s] = st[s + 1] end
+        st[len] = first
+      end
+      lane.order_len = nil
+    end
+    self.dirty = true
   end
 
   -- drift ------------------------------------------------------------------
@@ -383,5 +446,6 @@ return function(Track)
     elseif pd.kind == "slot" then
       if pd.arg ~= self.slot then self:load_slot(pd.arg) end
     end
+    if Track.on_applied then Track.on_applied(self, pd.kind) end
   end
 end

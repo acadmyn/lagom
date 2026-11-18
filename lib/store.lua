@@ -271,6 +271,14 @@ function S.store_scene(k)
   S.due = true
 end
 
+-- a track's slots a and b swapped places: scenes keep pointing at the same music
+function S.swap_slots(i, a, b)
+  for _, sc in pairs(S.scenes) do
+    if sc[i] == a then sc[i] = b elseif sc[i] == b then sc[i] = a end
+  end
+  S.due = true
+end
+
 -- returns false if the scene is empty
 function S.recall_scene(k, now)
   local sc = S.scenes[k]

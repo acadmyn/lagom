@@ -30,23 +30,4 @@ function Q.key(n)
   return true
 end
 
-function Q.draw()
-  local c = Q.queue[1]
-  if not c then return end
-  screen.level(0)
-  screen.rect(6, 16, 116, 34)
-  screen.fill()
-  screen.level(10)
-  screen.rect(6.5, 16.5, 115, 33)
-  screen.stroke()
-  screen.level(15)
-  for i, line in ipairs(c.lines) do
-    screen.move(64, 18 + i * 8)
-    screen.text_center(line)
-  end
-  screen.level(8)
-  screen.move(64, 45)
-  screen.text_center("K3 YES   K2 NO")
-end
-
 return Q

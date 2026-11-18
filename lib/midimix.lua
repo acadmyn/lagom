@@ -6,8 +6,10 @@ local M = {
   synced = false,   -- true once any fader/knob has been received (SEND ALL hint)
   solo = false,     -- SOLO is the shift button
   alt = false,      -- BANK LEFT held: alternate knob layer
-  hint = "",        -- pickup hint text for the screen
-  hint_until = 0,
+  -- last fader/knob touched, for the screen pop-up. one table, reused, so
+  -- a move costs no garbage beyond its strings
+  touch = {at = -1, track = 1, title = "", value = "", knob = nil,
+           frac = 0, knob_frac = 0, lo = "", hi = ""},
 }
 
 local Out           -- injected
@@ -25,19 +27,17 @@ local NOTE_SOLO_MUTE = {2, 5, 8, 11, 14, 17, 20, 23}   -- mute row while SOLO he
 local NOTE_REC = {3, 6, 9, 12, 15, 18, 21, 24}
 local NOTE_BANK_L, NOTE_BANK_R, NOTE_SOLO = 25, 26, 27
 local HOLD = 0.6    -- seconds: tap vs hold
-local HINT_TIME = 1.5
 
 -- 0..127 -> 1..n in equal-width buckets
 local function bucket(v, n) return math.min(n, v * n // 128 + 1) end
 local function pct(v) return util.round(v / 127 * 100) end
 
--- knob layers: [layer][row] = {param suffix, short name, map cc -> value, show}
+-- knob layers: [layer][row] = {param suffix, screen name, map cc -> value}
 local LAYERS = {
   {
     {"range", "RANGE", function(v) return bucket(v, K.MAX_RANGE) end},
-    {"div", "DIV", function(v) return bucket(v, #K.DIV_NAMES) end,
-     function(x) return K.DIV_SHORT[x] end},
-    {"len", "LEN", function(v) return bucket(v, K.MAX_STEPS) end},
+    {"div", "DIVISION", function(v) return bucket(v, #K.DIV_NAMES) end},
+    {"len", "LENGTH", function(v) return bucket(v, K.MAX_STEPS) end},
   },
   {
     {"drift", "DRIFT", pct},
@@ -77,6 +77,35 @@ function M.uncatch(i)
   end
 end
 
+-- a param value as its menu shows it (formatter / option name)
+local function fmt(p, v)
+  if p.formatter then return p.formatter({get = function() return v end}) end
+  if p.options then return p.options[v] end
+  return tostring(v)
+end
+
+-- record a touch for the pop-up; knob_v = the knob's own value while it has
+-- not picked up the stored one (nil once it follows)
+local function touch(i, id, title, knob_v)
+  local p = params:lookup_param(id)
+  local r = p:get_range()
+  local lo, hi = r[1], r[2]
+  local v = p:get()
+  local T = M.touch
+  T.at = util.time()
+  T.track = i
+  T.title = "T" .. i .. " " .. title
+  T.value = string.upper(fmt(p, v))
+  T.frac = (v - lo) / (hi - lo)
+  T.lo, T.hi = string.upper(fmt(p, lo)), string.upper(fmt(p, hi))
+  if knob_v then
+    T.knob = "KNOB " .. (knob_v < v and "< " or "> ") .. string.upper(fmt(p, knob_v))
+    T.knob_frac = (knob_v - lo) / (hi - lo)
+  else
+    T.knob = nil
+  end
+end
+
 local function knob(cc, v)
   local i, row = knob_at[cc][1], knob_at[cc][2]
   local k = LAYERS[M.alt and 2 or 1][row]
@@ -91,14 +120,12 @@ local function knob(cc, v)
     if new == cur or crossed then
       caught[id] = true
     else
-      local show = k[4] or tostring
-      M.hint = "T" .. i .. " " .. k[2] .. " " .. show(cur) .. "  " ..
-        (new < cur and "< " or "> ") .. show(new)
-      M.hint_until = util.time() + HINT_TIME
+      touch(i, id, k[2], new)
       return
     end
   end
   params:set(id, new)
+  touch(i, id, k[2])
 end
 
 -- tap / hold ------------------------------------------------------------------
@@ -192,7 +219,9 @@ function M.event(data)
   if msg.type == "cc" then
     if fader_at[msg.cc] then
       M.synced = true
-      params:set(tp(fader_at[msg.cc], "density"), pct(msg.val))
+      local i = fader_at[msg.cc]
+      params:set(tp(i, "density"), pct(msg.val))
+      touch(i, tp(i, "density"), "DENSITY")
     elseif knob_at[msg.cc] then
       M.synced = true
       knob(msg.cc, msg.val)

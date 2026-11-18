@@ -12,7 +12,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **Slots.** Each track has 16 slots. A slot holds the 32 steps **and** length, division, range, drift, gravity and gate, so loading a slot gives you exactly what you saved. Stepping onto an empty slot generates a fresh sequence.
 - **Working copy vs anchor.** Each slot has a working copy (what plays) and an anchor (what was saved). Drift, re-roll and undo only touch the working copy. Saving is a deliberate action. "Unsaved" means working ≠ anchor. The working copy is autosaved to disk (on slot change, on exit, and every 30 s).
 - **Drift and gravity (Turing Machine style).** Drift is the chance per pass that a non-motif step mutates. Gravity is the chance that a mutated step snaps back to its anchor value. Drift writes to the working copy permanently. Undo history: 16 steps per track, covering re-rolls, drift snapshots and reverts.
-- **Pickup.** All knobs use pickup: after a slot change, a knob does nothing until it passes the stored value, then it follows. While a knob hasn't caught up, the screen shows the stored value and an arrow pointing to the knob's position. Press SEND ALL on the MIDImix at boot to sync it.
+- **Pickup.** All knobs use pickup: after a slot change, a knob does nothing until it passes the stored value, then it follows. While a knob hasn't caught up, the pop-up shows the stored value, the knob's position and an arrow (see Screen). Press SEND ALL on the MIDImix at boot to sync it.
 
 ## Harmony
 
@@ -31,6 +31,9 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - `fixed gate` on/off: off = random length per step, on = gate %.
   - `velocity` on/off: off = fixed `vel`, on = `vel` ± `vel spread`.
   - `legato` off / random / all. `random` sets a legato flag per step at roll time, with probability `legato prob` (default 25%); the flag is saved with the slot. Legato only ties a note into the **directly following step**, and only if that step plays: its note-off is sent just after the next step's note-on. If the next step is silent, the note keeps its normal gate.
+- **shift left / right** (params, and the `shift` row on the track page with E3) rotates the first `length` steps of every lane by one; ranks move with their steps, so the motif and density order follow. Instant; consecutive shifts share one undo entry.
+- **move slot earlier / later** (params, and the `move slot` row on the track page with E3) swaps the current slot with its neighbour, so repeated moves reorder slots like dragging an item in a list (8 → 2 pushes 2–7 up by one). The slot keeps playing, nothing is overwritten, and scenes follow the moved music.
+- **copy to slot** (params `copy to slot` + `copy slot`, and the `copy to` row on the track page: E3 picks the target, K3 copies) duplicates the current slot (working copy, anchor and shape) into the target. Asks before overwriting a slot that has content.
 - `length` 1–32. `division` 1/32 1/16T 1/16 1/8T 1/8 1/4T 1/4 1/2 1/1 2bar. `range` 1 semitone to 4 octaves above `base note`.
 - `restart` off / 1 / 2 / 4 / 8 / 16 **bars of the master clock**, so polymeters can realign.
 
@@ -73,11 +76,20 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **E1** = page (main / track / harmony / clock / scenes). **E2** = select. **E3** = change. **K2** = back/cancel. **K3** = play/stop, or confirm in a dialog.
 - **Main page**: one row per track, showing:
   - the track number and type glyph
-  - a 32 × 2 px step strip with pitch as dot height (bright = playing, dim = hidden), the motif underlined, and an inverted playhead column
+  - a step strip that always spans the full width (short sequences get wider steps) with pitch as dot height (bright = playing, dim = hidden), the motif underlined, and an inverted playhead column
   - a density bar with a tick for the effective level
   - the slot number, with `*` for unsaved changes
 - **Header**: chord, progression dots, tempo, clock source, beat blip. A fader 9 meter runs along the right edge.
 - **Overlays**: SAVED, the global meter, confirmations (K3 yes / K2 no). Confirmations appear only on the norns, never blocking the MIDImix.
+- **Fader/knob pop-up**: moving a track fader or knob shows a box like the global meter for 1 s: `T3 LENGTH`, the value large, and a bar over the param's range with min/max labels. While a knob hasn't picked up, the bar is dim, a blinking tick marks the knob's position, `KNOB > 26` says which way to turn it, and the box stays 1.5 s. Whichever of the master fader and a track control moved last is shown.
+- **Pages** (as built in step 7):
+  - main: E2 selects a track (its number is inverted), E3 steps its slot. Each row also shows length and division as numbers (the user asked for this).
+  - track: the selected track's step graph (drums: one row per lane), then a param list (E2 select, E3 change, `clear slot` at the end).
+  - harmony: progression boxes (current one filled, bar-progress line under it), a two-octave keyboard (bright = chord tones, dim = scale), then one param row (root, scale, progression, chords, chord rate, harmony drift/gravity).
+  - clock: big tempo, master/slave, playing, beat boxes, clock in/out, then a param list (tempo, mode, ports, beats per bar, controller port, clock out per connected port).
+  - scenes: 8 boxes showing each track's slot as a bar. E2/E3 select, **K3 recall, K2 store** (asks before overwriting).
+  - K2 on any page except main and scenes goes back to main.
+- **Drawing**: the whole frame is drawn in Lua into a 128×64 buffer with a built-in 3×5 font and sent with one `screen.poke`. Per-call screen drawing stalled the tick loop by up to 25 ms. Measured worst-case step jitter at 180 BPM, 8 tracks at 1/32: about 2.5 ms with the screen running, 1 ms without.
 - **Confirm before**:
   - loading a set while anchors are unsaved
   - clearing a slot

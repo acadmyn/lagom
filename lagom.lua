@@ -20,7 +20,11 @@
 -- psets = sets (all slots),
 -- autosaved; scenes in params
 --
--- v0.6 (step 6: persistence)
+-- E1 page, E2 select, E3 change
+-- K2 back, K3 play/confirm
+-- scenes page: K2 store, K3 recall
+--
+-- v0.7 (step 7: screen)
 
 local K = include("lib/const")
 local MU = require "musicutil"
@@ -35,14 +39,12 @@ local Cd = include("lib/conductor")
 local Learn = include("lib/learn")
 local Confirm = include("lib/confirm")
 local S = include("lib/store")
+local UI = include("lib/ui")
 
 local tracks = {}
 local redraw_coro
-local flash, flash_until = nil, 0
 
-local function show(msg)
-  flash, flash_until = msg, util.time() + 1
-end
+local function show(msg) UI.message(msg) end
 
 local function fmt_pct(p) return p:get() .. "%" end
 
@@ -84,12 +86,13 @@ local function add_harmony_params()
   params:add_trigger("reroll_progression", "re-roll progression")
   params:set_action("reroll_progression", function() Cd.reroll() end)
   params:add_trigger("save_progression", "save progression")
-  params:set_action("save_progression", function() Cd.save(); show("PROGRESSION SAVED") end)
+  params:set_action("save_progression", function() Cd.save(); UI.saved("SAVED", "PROGRESSION") end)
 end
 
 local function add_global_params(names)
   params:add_separator("lagom_density_sep", "density")
   params:add_number("global_density", "density offset", -100, 100, 0, fmt_pct)
+  params:set_action("global_density", function() UI.global_moved() end)
   params:add_number("deadzone", "deadzone", 0, 15, 6, function(p) return "±" .. p:get() .. "%" end)
   params:add_separator("lagom_ctrl_sep", "controller")
   params:add_option("controller_port", "controller port", names, 1)
@@ -98,7 +101,7 @@ local function add_global_params(names)
   params:add_trigger("save_all", "save all tracks")
   params:set_action("save_all", function()
     for _, t in ipairs(tracks) do t:save() end
-    show("ALL TRACKS SAVED")
+    UI.saved("SAVED", "ALL TRACKS")
   end)
   params:add_group("lagom_scenes", "scenes", 16)
   for k = 1, 8 do
@@ -148,7 +151,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 55)
+    params:add_group("track_" .. i, "track " .. i, 61)
     -- perform
     params:add_number(pre .. "density", "density", 0, 100, 0, fmt_pct)
     params:add_binary(pre .. "mute", "mute", "toggle", 0)
@@ -166,7 +169,7 @@ local function add_track_params(names)
     params:add_trigger(pre .. "save", "save")
     params:set_action(pre .. "save", on_change(function(t)
       t:save()
-      show("T" .. i .. " SLOT " .. t.slot .. " SAVED")
+      UI.saved("SAVED", "T" .. i .. " SLOT " .. t.slot)
     end))
     params:add_trigger(pre .. "revert", "revert")
     params:set_action(pre .. "revert", req("revert"))
@@ -178,6 +181,32 @@ local function add_track_params(names)
     params:set_action(pre .. "slot_next", req("slot", function(t) return t:target_slot() + 1 end))
     params:add_trigger(pre .. "slot_prev", "slot prev")
     params:set_action(pre .. "slot_prev", req("slot", function(t) return t:target_slot() - 1 end))
+    params:add_trigger(pre .. "shift_left", "shift left")
+    params:set_action(pre .. "shift_left", on_change(function(t) t:shift(-1) end))
+    params:add_trigger(pre .. "shift_right", "shift right")
+    params:set_action(pre .. "shift_right", on_change(function(t) t:shift(1) end))
+    params:add_trigger(pre .. "move_earlier", "move slot earlier")
+    params:set_action(pre .. "move_earlier", on_change(function(t)
+      if t:move_slot(-1) then show("T" .. i .. " SLOT MOVED TO " .. t.slot) end
+    end))
+    params:add_trigger(pre .. "move_later", "move slot later")
+    params:set_action(pre .. "move_later", on_change(function(t)
+      if t:move_slot(1) then show("T" .. i .. " SLOT MOVED TO " .. t.slot) end
+    end))
+    params:add_number(pre .. "copy_to", "copy to slot", 1, Track.NUM_SLOTS, 2)
+    params:add_trigger(pre .. "copy", "copy slot")
+    params:set_action(pre .. "copy", on_change(function(t)
+      local n = params:get(pre .. "copy_to")
+      if n == t.slot then show("PICK ANOTHER SLOT TO COPY TO"); return end
+      local function go()
+        if t:copy_slot_to(n) then show("T" .. i .. " SLOT " .. t.slot .. " COPIED TO " .. n) end
+      end
+      if t.slots[n] then
+        Confirm.ask({"OVERWRITE T" .. i .. " SLOT " .. n .. "?"}, go, nil, true)
+      else
+        go()
+      end
+    end))
     params:add_trigger(pre .. "clear", "clear slot")
     params:set_action(pre .. "clear", on_change(function(t)
       Confirm.ask({"CLEAR T" .. i .. " SLOT " .. t:target_slot() .. "?"},
@@ -246,6 +275,8 @@ function init()
   for i = 1, K.NUM_TRACKS do tracks[i] = Track.new(i) end
   Track.on_shape_loaded = function(id) Mix.uncatch(id) end
   Track.on_slot_changed = function() S.due = true end
+  Track.on_applied = function(t) UI.track_changed(t.id) end
+  Track.on_slots_swapped = function(t, a, b) S.swap_slots(t.id, a, b) end
   Track.ask_drop = function(t, e, answer)
     Confirm.ask({"T" .. t.id .. " UNDO IS FULL", "DROP AN UNSAVED VERSION?"},
       function() answer(true) end, function() answer(false) end)
@@ -254,7 +285,7 @@ function init()
   S.hook_psets()
 
   Cd.init(H)
-  Cd.on_change = function() Mix.blink_bank_right() end
+  Cd.on_change = function() Mix.blink_bank_right(); UI.chord_changed() end
   C.init(Out,
     function() Seq.reset(); Cd.start(); Seq.catch_up() end,
     function() Seq.stop_all() end)
@@ -291,8 +322,17 @@ function init()
     print("lagom: restored autosave")
   end
   Mix.refresh()
+  -- a re-plugged controller has lost its led state: push it again once the
+  -- device is up (norns resets midi.add when the script exits)
+  midi.add = function(dev)
+    if dev.port ~= nil and dev.port == Mix.port() then
+      clock.run(function() clock.sleep(0.5); Mix.refresh() end)
+    end
+  end
   Seq.start()
   S.start()
+  UI.init({tracks = tracks, C = C, H = H, Cd = Cd, Mix = Mix, Learn = Learn,
+           Confirm = Confirm, S = S, Seq = Seq, Track = Track})
 
   redraw_coro = clock.run(function()
     while true do
@@ -302,12 +342,13 @@ function init()
   end)
   -- handle for REPL introspection while developing
   _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd, Learn = Learn,
-            S = S, Confirm = Confirm}
+            S = S, Confirm = Confirm, UI = UI}
   print("lagom: init ok")
 end
 
 function key(n, z)
   if z == 1 and Confirm.key(n) then return end
+  if UI.key(n, z) then return end
   if n == 2 and z == 1 and Learn.active() then
     Learn.cancel()
   elseif n == 3 and z == 1 then
@@ -315,148 +356,10 @@ function key(n, z)
   end
 end
 
-function enc(n, d) end
-
--- temporary screen: one row per track (polished in step 7)
-local function draw_track(i, y)
-  local t = tracks[i]
-  local muted = t:p("mute") == 1
-  local len = t:p("len")
-  local lanes = t:num_lanes()
-  for l = 1, lanes do t:update_order(len, l) end
-  local dens = t:density()
-
-  screen.level(muted and 2 or 8)
-  screen.move(0, y + 4)
-  screen.text(i)
-
-  for s = 1, len do
-    local audible = false
-    for l = 1, lanes do audible = audible or t:is_audible(s, len, dens, l) end
-    local lvl = audible and 9 or 2
-    if C.playing and s == t.pos then lvl = audible and 15 or 6 end
-    if muted then lvl = math.min(lvl, 3) end
-    screen.level(lvl)
-    screen.rect(6 + (s - 1) * 2, y, 1, 4)
-    screen.fill()
-  end
-  -- motif underline (lane 1)
-  local motif = t:p("motif")
-  screen.level(muted and 1 or 4)
-  for s = 1, len do
-    if t.lanes[1].order[s] <= motif then
-      screen.rect(6 + (s - 1) * 2, y + 5, 1, 1)
-      screen.fill()
-    end
-  end
-
-  -- density bar: fill = fader, tick = effective
-  local bx, bw = 72, 10
-  screen.level(1)
-  screen.rect(bx, y + 1, bw, 2)
-  screen.fill()
-  screen.level(muted and 3 or 6)
-  screen.rect(bx, y + 1, math.floor(t:p("density") / 100 * bw + 0.5), 2)
-  screen.fill()
-  screen.level(15)
-  screen.rect(bx + math.min(bw - 1, math.floor(dens * bw + 0.5)), y, 1, 4)
-  screen.fill()
-
-  -- sequence length and division
-  screen.level(muted and 3 or 12)
-  screen.move(91, y + 4)
-  screen.text_right(len)
-  screen.level(muted and 3 or 9)
-  screen.move(94, y + 4)
-  screen.text(K.DIV_SHORT[t:p("div")])
-
-  -- slot: blinks while a change waits for the bar, * = unsaved
-  local blink = t.pending and math.floor(util.time() * 4) % 2 == 0
-  screen.level(blink and 2 or (muted and 3 or 10))
-  screen.move(112, y + 4)
-  local shown = t:target_slot()
-  screen.text(shown .. (t:unsaved() and "*" or ""))
-end
-
-local function draw_global_meter()
-  local cx, cy, h = 126, 36, 27
-  local raw = params:get("global_density") / 100
-  local eff = Track.global_offset()
-  local dz = math.floor(params:get("deadzone") / 100 * h + 0.5)
-  screen.level(1)
-  screen.rect(cx, cy - h, 2, 2 * h)
-  screen.fill()
-  screen.level(3)
-  screen.rect(cx, cy - dz, 2, 2 * dz + 1)
-  screen.fill()
-  local y = cy - math.floor(raw * h + 0.5)
-  screen.level(eff == 0 and 6 or 15)
-  screen.rect(cx - 1, y, 3, 1)
-  screen.fill()
-end
-
--- chord, progression dots, key, tempo
-local function draw_header()
-  screen.level(15)
-  screen.move(0, 6)
-  if C.warning then
-    screen.text("! " .. C.warning)
-    return
-  end
-  if Learn.active() then
-    screen.text(Learn.prompt())
-    return
-  end
-  if util.time() < Learn.done_until then
-    screen.text(Learn.done_msg)
-    return
-  end
-  if util.time() < flash_until then
-    screen.text(flash)
-    return
-  end
-  if util.time() < Mix.hint_until then
-    screen.text(Mix.hint)
-    return
-  end
-  if not Mix.synced then
-    screen.text("PRESS SEND ALL ON MIDIMIX")
-    return
-  end
-  local pending = Cd.pending_next or Cd.pending_home
-  screen.level(pending and 8 or 15)
-  screen.text(string.upper(H.chord_label(H.degree)))
-
-  for i = 1, #Cd.working do
-    screen.level(i == Cd.idx and 15 or 3)
-    screen.rect(40 + (i - 1) * 3, 3, 2, 2)
-    screen.fill()
-  end
-  if Cd.unsaved() then
-    screen.level(8)
-    screen.move(40 + #Cd.working * 3, 6)
-    screen.text("*")
-  end
-
-  screen.level(H.pending and 15 or 5)
-  screen.move(70, 6)
-  screen.text(H.key_label())
-  screen.level(C.playing and 12 or 4)
-  screen.move(125, 6)
-  screen.text_right(C.is_slave() and "EXT" or math.floor(clock.get_tempo() + 0.5))
-end
+function enc(n, d) UI.enc(n, d) end
 
 function redraw()
-  screen.clear()
-  screen.font_face(25)
-  screen.font_size(6)
-
-  draw_header()
-
-  for i = 1, K.NUM_TRACKS do draw_track(i, 9 + (i - 1) * 7) end
-  draw_global_meter()
-  Confirm.draw()
-  screen.update()
+  UI.redraw()
   Mix.update_leds()
 end
 
