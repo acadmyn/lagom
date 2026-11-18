@@ -17,7 +17,9 @@ lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony,
 ## Hardware facts (verified)
 
 - norns shield XL, Pi 4, norns 260102, Raspbian bullseye, Lua 5.3.
-- **MIDI devices** (vports): 1 = MIDI Mix, 2 = OP-1, 3 = Waldorf Protein. The TRS jacks show up as the device `virtual` (through ttymidi) and are **not yet assigned** to a vport. norns keeps vports by device name, so swapping USB sockets doesn't change them.
+- **MIDI devices** (vports): 1 = MIDI Mix, 2 = OP-1, 3 = Waldorf Protein, 4 = `virtual` (the TRS jacks, through ttymidi). norns keeps vports by device name, so swapping USB sockets doesn't change them.
+- **TRS MIDI** needs an ALSA connection between ttymidi (client `shieldXL`) and matron's `virtual` port. Nothing on the norns makes it, so `lib/trs.lua` does at init (matron opens `virtual` twice and keeps the newer client). lagom must work on any norns, so never fix things with system services or config. Loopback (TRS out → TRS in, `tools/midi_loopback.lua`): about 2.1 ms round trip, ±0.2 ms jitter, no losses, bursts at wire speed (0.96 ms per note). The user plans to move every synth except the OP-1 to TRS (USB power).
+- **Restarting the norns software:** never restart `norns-matron` alone, because it starts before JACK is ready and exits. Use `sudo systemctl stop "norns-*"; sudo systemctl start norns.target` (the same as `~/norns/stop.sh` + `start.sh`).
 - **Protein**: Multi mode with the **Midi Split** option and Receive Channel **2** (the user wants 2), so layers A–D = channels 2–5. All layers share 8 voices; set mono parts to Mono voice mode.
 - **USB power**: the Pi 4 supplies about 1.2 A total across its USB ports. It can't power the Protein and the Analog Sweden SWEN2 together (the SWEN2 alone is roughly 1.5–2 A); that needs a powered hub.
 - **Matron holds MIDI devices exclusively**, so `amidi` and `aseqdump` can't open them. To sniff MIDI, hook `midi.devices[id].event` from the REPL instead.

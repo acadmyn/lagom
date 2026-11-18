@@ -40,6 +40,7 @@ local Learn = include("lib/learn")
 local Confirm = include("lib/confirm")
 local S = include("lib/store")
 local UI = include("lib/ui")
+local Trs = include("lib/trs")
 
 local tracks = {}
 local redraw_coro
@@ -261,6 +262,7 @@ end
 
 function init()
   math.randomseed(os.time())
+  Trs.connect()
   Out.init()
   Mix.init(Out, tracks)
   Track.H = H

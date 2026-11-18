@@ -44,7 +44,8 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **Master**: lagom sends clock plus Start/Stop to opted-in ports (`clock out → port n`). K3 or SOLO + BANK RIGHT toggles play.
 - **Slave**: the system clock source is set to midi and listens only on `clock in port`. lagom forwards raw `F8 FA FB FC` to opted-in ports as a real thru, and follows external Start/Stop.
 - Keep the norns system "midi clock out" **off** for ports lagom feeds, or those ports get doubled ticks. lagom warns about this.
-- The 3.5 mm TRS jacks show up as the MIDI device `virtual` (through ttymidi) and must be assigned to a vport under SYSTEM › DEVICES › MIDI.
+- The 3.5 mm TRS jacks show up as the MIDI device `virtual` (through ttymidi) and must be assigned to a vport under SYSTEM › DEVICES › MIDI. Nothing connects ttymidi to matron by default, so lagom does it at init (`lib/trs.lua`); on a norns without ttymidi it does nothing.
+- One DIN/TRS output carries about 1,000 notes per second, shared by every synth on it. Notes of one step go out one after another (about 1 ms each), so a busy step spreads over a few ms.
 
 ## MIDImix (factory preset, channel 1, verified on hardware)
 
