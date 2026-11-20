@@ -4,6 +4,7 @@ lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony,
 
 - **Every product decision** is in `docs/design.md`. Read it before changing behavior. It came from a long interview with the user, so don't re-ask settled questions.
 - **Build plan**: GitHub issues #1–#7 (one per step) and #8–#9 (later). The issue bodies are mirrored in `tools/issues/`.
+- **Operator's manual**: style rules in `docs/manual-style.md` (writing + design). Follow them for every chapter.
 - **Visual mockups** (private to the user): https://claude.ai/artifact/Hjxc1w5SiS565Vyx37METb. The source of truth is `docs/design.md`.
 
 ## Workflow (the user expects this)
