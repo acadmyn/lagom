@@ -11,7 +11,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **Motif.** The top `motif size` ranks (0–8, default 4) are never changed by drift. With a fader low you hear only the motif; pushed up, you hear ornaments around it.
 - **Slots.** Each track has 16 slots. A slot holds the 32 steps **and** length, division, range, drift, gravity and gate, so loading a slot gives you exactly what you saved. Stepping onto an empty slot generates a fresh sequence.
 - **Working copy vs anchor.** Each slot has a working copy (what plays) and an anchor (what was saved). Drift, re-roll and undo only touch the working copy. Saving is a deliberate action. "Unsaved" means working ≠ anchor. The working copy is autosaved to disk (on slot change, on exit, and every 30 s).
-- **Drift and gravity (Turing Machine style).** Drift is the chance per pass that a non-motif step mutates. Gravity is the chance that a mutated step snaps back to its anchor value. Drift writes to the working copy permanently. Undo history: 16 steps per track, covering re-rolls, drift snapshots and reverts.
+- **Drift and gravity (Turing Machine style).** Drift is the chance per pass that a non-motif step mutates. Gravity is the chance that a mutated step snaps back to its anchor value. Drift writes to the working copy permanently. Undo history: 16 steps per track, covering re-rolls, drift snapshots and reverts. When it is full the oldest entry drops silently (no confirmation; the user found it got in the way).
 - **Pickup.** All knobs use pickup: after a slot change, a knob does nothing until it passes the stored value, then it follows. While a knob hasn't caught up, the pop-up shows the stored value, the knob's position and an arrow (see Screen). Press SEND ALL on the MIDImix at boot to sync it.
 
 ## Harmony
@@ -100,7 +100,6 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - loading a set while anchors are unsaved
   - clearing a slot
   - overwriting a set file
-  - when the undo history is about to drop a version that was never saved
 
 ## Persistence
 
@@ -111,7 +110,6 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - loading a set while any slot or the progression is unsaved
   - overwriting a set
   - `clear slot` (the current slot gets a fresh roll as working copy and anchor; lands on the next bar)
-  - undo full: dropping a phrase left behind by a re-roll or revert that was never saved. The action itself goes ahead; "no" keeps that version in the history (outside the 16-step limit). Drift steps and saved versions drop silently.
 
 ## Params
 

@@ -104,8 +104,6 @@ return function(Track)
   Track.on_shape_loaded = nil   -- callback(track id): knobs lose pickup
   Track.on_slot_changed = nil   -- callback(track): autosave
   Track.on_slots_swapped = nil  -- callback(track, a, b): scenes follow
-  Track.ask_drop = nil          -- callback(track, entry, answer(yes)): confirm
-                                -- dropping a never-saved version from undo
 
   function Track:capture_shape()
     local sh = {}
@@ -212,49 +210,9 @@ return function(Track)
     self:trim_undo()
   end
 
-  -- a re-roll or revert left behind a phrase that was never saved
-  -- (drift and shift entries are small, reversible steps)
-  local function precious(self, e)
-    if e.kind == "drift" or e.kind == "shift" then return false end
-    local sl = self.slots[e.slot]
-    return not (sl and lanes_equal(e.snap.lanes, sl.anchor.lanes))
-  end
-
-  -- keep UNDO_MAX entries. drift steps and saved versions drop silently;
-  -- dropping a never-saved phrase asks first (one question at a time; the
-  -- history grows past the limit until it is answered). kept entries
-  -- ("no, keep it") don't count towards the limit.
+  -- keep the newest UNDO_MAX entries; the oldest drops silently
   function Track:trim_undo()
-    while true do
-      local n, oldest = 0, nil
-      for i, e in ipairs(self.undo) do
-        if not e.keep and not e.asking then
-          n = n + 1
-          oldest = oldest or i
-        end
-      end
-      if n <= UNDO_MAX then return end
-      local e = self.undo[oldest]
-      if not precious(self, e) or not Track.ask_drop then
-        table.remove(self.undo, oldest)
-      elseif self.asking then
-        return
-      else
-        e.asking, self.asking = true, e
-        Track.ask_drop(self, e, function(yes)
-          if self.asking == e then self.asking = nil end
-          e.asking = nil
-          if yes then
-            for i, x in ipairs(self.undo) do
-              if x == e then table.remove(self.undo, i); break end
-            end
-          else
-            e.keep = true
-          end
-          self:trim_undo()
-        end)
-      end
-    end
+    while #self.undo > UNDO_MAX do table.remove(self.undo, 1) end
   end
 
   function Track:undo_depth()
@@ -464,7 +422,7 @@ return function(Track)
       self.slots[n] = {work = work, shape = s.shape,
                        anchor = {lanes = anchor, shape = s.anchor.shape}}
     end
-    self.undo, self.pending, self.asking = {}, nil, nil
+    self.undo, self.pending = {}, nil
     self.slot = util.clamp(d.slot or 1, 1, NUM_SLOTS)
     if not self.slots[self.slot] then
       self:generate_slot(self.slot)

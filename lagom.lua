@@ -301,10 +301,6 @@ function init()
   Track.on_slot_changed = function() S.due = true end
   Track.on_applied = function(t) UI.track_changed(t.id) end
   Track.on_slots_swapped = function(t, a, b) S.swap_slots(t.id, a, b) end
-  Track.ask_drop = function(t, e, answer)
-    Confirm.ask({"T" .. t.id .. " UNDO IS FULL", "DROP AN UNSAVED VERSION?"},
-      function() answer(true) end, function() answer(false) end)
-  end
   S.init(tracks, Cd, H, Confirm, first_param)
   S.hook_psets()
 
