@@ -355,14 +355,16 @@ return function(Track)
   -- once per pass: each non-motif step mutates with probability `drift`; a
   -- mutation snaps back to the anchor value with probability `gravity`.
   -- mono drifts pitch/velocity/gate; chord and drums also drift rhythm.
-  -- euclid drum lanes drift by flipping steps (hit <-> rest); their motif is
-  -- the first `motif size` hits, so a four-on-the-floor can stay put while
-  -- extra hits come and go.
+  -- euclid drum lanes work differently: drift flips steps that are still on
+  -- the pattern (hit <-> rest), and every pass each flipped step snaps back
+  -- to the plain euclid pattern with probability `gravity`, even at drift 0.
+  -- their motif is the first `motif size` hits, so a four-on-the-floor can
+  -- stay put while extra hits come and go.
   function Track:drift(len)
     self.passes = self.passes + 1
     local dr = self:p("drift") / 100
-    if dr <= 0 then return end
     local gr = self:p("gravity") / 100
+    if dr <= 0 and (gr <= 0 or not self:is_drums()) then return end
     local motif = self:p("motif")
     local anchor = self.slots[self.slot].anchor
     local rhythm = self:p("type") ~= 1
@@ -380,24 +382,39 @@ return function(Track)
       local eu = self:is_euclid(l) and self:euclid(l, len)
       local pinned, rerank = {}, false
       for s = 1, len do
+        local st = lane.steps[s]
+        local home = anchor and anchor.lanes[l].steps[s]
         local in_motif
+        if eu and st.x then
+          -- off the pattern: gravity pulls it home (velocity/gate from the anchor)
+          if math.random() < gr then
+            st.x = false
+            if home then st.p, st.v, st.g = home.p, home.v, home.g end
+            changed = true
+          end
+          goto next_step
+        end
         if eu then in_motif = eu.ins[s] and eu.order[s] <= motif
         else in_motif = lane.order[s] <= motif end
         if in_motif then
           pinned[s] = true
+        elseif eu then
+          if math.random() < dr then
+            st.x = true
+            st.p, st.v, st.g = math.random(), math.random(), math.random()
+            changed = true
+          end
         elseif math.random() < dr then
-          local st = lane.steps[s]
-          local home = anchor and anchor.lanes[l].steps[s]
           if home and math.random() < gr then
-            st.p, st.v, st.g, st.x = home.p, home.v, home.g, home.x == true
-            if rhythm and not eu and st.rr ~= home.rr then st.rr = home.rr; rerank = true end
+            st.p, st.v, st.g = home.p, home.v, home.g
+            if rhythm and st.rr ~= home.rr then st.rr = home.rr; rerank = true end
           else
             st.p, st.v, st.g = math.random(), math.random(), math.random()
-            if eu then st.x = not st.x
-            elseif rhythm then st.rr = math.random(); rerank = true end
+            if rhythm then st.rr = math.random(); rerank = true end
           end
           changed = true
         end
+        ::next_step::
       end
       if rerank then self:rank_lane(l, pinned) end
     end
