@@ -9,6 +9,7 @@ Track.__index = Track
 
 Track.TYPES = {"mono", "chord", "drums", "poly"}
 Track.ROLES = {"kick", "snare", "hat", "perc"}
+Track.LANE_MODES = {"rank", "euclid"}
 Track.LEGATO = {"off", "random", "all"}
 Track.RESTART_NAMES = {"off", "1 bar", "2 bars", "4 bars", "8 bars", "16 bars"}
 Track.RESTART_BARS = {0, 1, 2, 4, 8, 16}
@@ -54,6 +55,68 @@ function Track:num_lanes()
   if ty == DRUMS then return self:p("voices") end
   if ty == POLY then return math.max(2, self:p("voices")) end
   return 1
+end
+
+-- drums ---------------------------------------------------------------------
+
+function Track:lane_p(l, name) return params:get("t" .. self.id .. "_lane" .. l .. "_" .. name) end
+
+function Track:is_euclid(l) return self:is_drums() and self:lane_p(l, "mode") == 2 end
+
+-- drums: each lane owns a stretch of the fader (`from`..`to`). below it the
+-- lane is silent, across it the lane comes in step by step, above it the
+-- lane plays in full. from == to switches the whole lane on at that point.
+-- returns 0..1, the share of the lane's steps (rank) or hits (euclid) shown
+function Track:drum_level(l, dens)
+  if dens <= 0 then return 0 end
+  local from, to = self:lane_p(l, "from") / 100, self:lane_p(l, "to") / 100
+  if dens < from then return 0 end
+  if to <= from then return 1 end
+  return math.min(1, (dens - from) / (to - from))
+end
+
+-- euclid lane: `hits` spread evenly over the first len steps, rotated right
+-- by `rotate`. a step's x flag (written by drift) flips it, so variations
+-- live in the step data and repeat every pass. hits are revealed in rank
+-- order (kick: the one first). cached until the track's revision changes
+function Track:euclid(l, len)
+  local lane = self.lanes[l]
+  local k = math.min(self:lane_p(l, "hits"), len)
+  local rot = self:lane_p(l, "rotate") % len
+  local e = lane.eu
+  if e and e.len == len and e.k == k and e.rot == rot and e.rev == self.rev then return e end
+  e = e or {ins = {}, order = {}, idx = {}}
+  local steps, ins, idx, n = lane.steps, e.ins, e.idx, 0
+  for s = 1, len do
+    local i = (s - 1 - rot) % len
+    local hit = k > 0 and (i * k) % len < k
+    if steps[s].x then hit = not hit end
+    ins[s] = hit
+    if hit then n = n + 1; idx[n] = s end
+  end
+  for j = #idx, n + 1, -1 do idx[j] = nil end
+  table.sort(idx, function(a, b) return steps[a].r < steps[b].r end)
+  for o, s in ipairs(idx) do e.order[s] = o end
+  e.count, e.len, e.k, e.rot, e.rev = n, len, k, rot, self.rev
+  lane.eu = e
+  return e
+end
+
+-- what drum lane l plays at density dens. step s plays when
+-- (not ins or ins[s]) and order[s] <= shown
+function Track:drum_lane(l, len, dens)
+  local x = self:drum_level(l, dens)
+  if self:lane_p(l, "mode") == 2 then
+    local e = self:euclid(l, len)
+    return e.order, math.floor(x * e.count + 0.5), e.ins
+  end
+  self:update_order(len, l)
+  return self.lanes[l].order, math.floor(x * self:lane_p(l, "max") / 100 * len + 0.5), nil
+end
+
+function Track:drum_plays(l, s, len, dens)
+  local order, shown, ins = self:drum_lane(l, len, dens)
+  return (not ins or ins[s]) and order[s] <= shown
 end
 
 -- poly: the fader brings voices in one by one. voice l starts at
@@ -122,7 +185,7 @@ function Track:roll()
     local steps = {}
     for s = 1, K.MAX_STEPS do
       steps[s] = {p = math.random(), v = math.random(), g = math.random(),
-                  rr = math.random(), leg = false}
+                  rr = math.random(), leg = false, x = false}
     end
     self.lanes[l] = {steps = steps, order = {}}
   end
@@ -298,8 +361,7 @@ function Track:step(t, seq, rel)
 
   if self:is_drums() then
     for l = 1, self:num_lanes() do
-      self:update_order(len, l)
-      if self:is_audible(self.pos, len, dens, l) then
+      if self:drum_plays(l, self.pos, len, dens) then
         local st = self.lanes[l].steps[self.pos]
         seq.note(t, port, ch, self:p("lane" .. l .. "_note"), self:velocity(st),
                  self:gate_ticks(st, div), self.id)

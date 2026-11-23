@@ -27,6 +27,10 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **mono**: 1 voice.
 - **chord**: 2–8 voices stacked from the current chord or scale, with voice leading.
 - **drums**: 1–8 lanes. Each lane has its own note (GM defaults 36 38 42 46 39 45 49 51), its own rhythm and a role: kick (downbeats rank first), snare (backbeats first), hat (8ths, then 16ths) or perc (random ranking). Lanes share the track's fader and channel. Drums ignore harmony.
+  - **Fader layers**: each lane owns a stretch of the fader, `from`..`to` (defaults 0–100%, so every lane follows the whole fader). Below `from` the lane is silent; across the stretch it comes in step by step in rank order; above `to` it plays in full. `from` = `to` switches the whole lane on at that point. Example: kick 0–20, closed hat 20–40, open hat 40–60, perc 60–80, fill 80–100. 0% is always silent.
+  - **Lane mode**: `rank` (as above; `max` = the lane's density at the top of its stretch) or `euclid`: `hits` spread evenly over the track length, rotated right by `rotate` (4 hits = steps 1 5 9 13; 4 hits rotate 2 = 3 7 11 15). Hits come in on the fader in rank order, so a kick builds 1, then 9, then 5 and 13.
+  - **Euclid drift** (Turing Machine style): a mutation flips a step (hit ↔ rest) and stores the flip in the step data, so the variation repeats every pass until gravity flips it back to the anchor. The motif is the first `motif size` hits, so with motif 4 a four-on-the-floor never loses a kick while extra kicks come and go. Drift 0 freezes the current variation; save makes it the anchor. Flips are saved in the set files (the legato flag field: leg = 1, flip = 2, so older files still load).
+  - Lane mode, hits, rotate, max, from and to are per-track params (like note and role), not stored per slot.
 - **poly**: 2–8 independent melodic lines on the track's channel (set the synth part to poly). Each voice has its own pitch, velocity and gate seeds, its own random rhythm ranking, legato flags and motif, and uses the whole range (voices may cross or meet). Voices share length, division, range, tension and the MIDImix knobs. The track fader brings voices in one by one: voice 1 follows the fader, and voice n starts at (n−1)/voices of the travel, so every voice is at full density only at the top. On screen, the track page draws one mark per voice at its pitch; the main strip shows the lowest-numbered voice that plays.
 - **feel**:
   - `fixed gate` on/off: off = random length per step, on = gate %.
@@ -117,7 +121,7 @@ Every performance control is a norns param, so it can be MIDI-mapped.
   - shape: length, division, range, drift, gravity, gate
   - setup: type, voices, port, channel, base note, tension, motif size, restart
   - feel: fixed gate, velocity, vel, vel spread, legato, legato prob
-  - drum lanes: note and role per lane
+  - drum lanes: note, role, mode (rank/euclid), hits, rotate, max, fader from/to per lane
 - **Global**:
   - density offset, deadzone
   - root, scale, progression, chords, chord rate, harmony drift/gravity, next chord, home

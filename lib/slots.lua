@@ -9,14 +9,15 @@ local DRIFT_COALESCE = 4   -- passes: drift snapshots closer than this merge
 -- shape params stored with every slot
 local SHAPE = {"len", "div", "range", "drift", "gravity", "gate"}
 
-local STEP_FIELDS = {"p", "v", "g", "rr", "leg", "r"}
+local STEP_FIELDS = {"p", "v", "g", "rr", "leg", "r", "x"}
 
 local function copy_lanes(lanes)
   local out = {}
   for l, lane in ipairs(lanes) do
     local steps = {}
     for s, st in ipairs(lane.steps) do
-      steps[s] = {p = st.p, v = st.v, g = st.g, rr = st.rr, leg = st.leg, r = st.r}
+      steps[s] = {p = st.p, v = st.v, g = st.g, rr = st.rr, leg = st.leg, r = st.r,
+                  x = st.x == true}
     end
     out[l] = {steps = steps, order = {}}
   end
@@ -41,12 +42,13 @@ local function lanes_equal(a, b)
   return true
 end
 
--- lane <-> flat number list (for the set files): p v g rr r leg per step
+-- lane <-> flat number list (for the set files): p v g rr r flags per step.
+-- flags = leg (1) + euclid flip x (2), so older files (0/1) still load
 local function flat_lane(lane)
   local f = {}
   for _, st in ipairs(lane.steps) do
     f[#f + 1] = st.p; f[#f + 1] = st.v; f[#f + 1] = st.g; f[#f + 1] = st.rr
-    f[#f + 1] = st.r; f[#f + 1] = st.leg and 1 or 0
+    f[#f + 1] = st.r; f[#f + 1] = (st.leg and 1 or 0) + (st.x and 2 or 0)
   end
   return f
 end
@@ -58,7 +60,7 @@ local function lane_matches(lane, f)
   for s = 1, #steps do
     local st, i = steps[s], (s - 1) * 6
     if f[i + 1] ~= st.p or f[i + 2] ~= st.v or f[i + 3] ~= st.g or f[i + 4] ~= st.rr
-       or f[i + 5] ~= st.r or f[i + 6] ~= (st.leg and 1 or 0) then
+       or f[i + 5] ~= st.r or f[i + 6] ~= (st.leg and 1 or 0) + (st.x and 2 or 0) then
       return false
     end
   end
@@ -81,8 +83,9 @@ local function unflat_lane(f)
   local steps = {}
   for s = 1, #f // 6 do
     local i = (s - 1) * 6
+    local fl = math.tointeger(f[i + 6]) or 0
     steps[s] = {p = f[i + 1], v = f[i + 2], g = f[i + 3], rr = f[i + 4],
-                r = math.tointeger(f[i + 5]) or f[i + 5], leg = f[i + 6] == 1}
+                r = math.tointeger(f[i + 5]) or f[i + 5], leg = fl & 1 == 1, x = fl & 2 == 2}
   end
   return {steps = steps, order = {}}
 end
@@ -352,6 +355,9 @@ return function(Track)
   -- once per pass: each non-motif step mutates with probability `drift`; a
   -- mutation snaps back to the anchor value with probability `gravity`.
   -- mono drifts pitch/velocity/gate; chord and drums also drift rhythm.
+  -- euclid drum lanes drift by flipping steps (hit <-> rest); their motif is
+  -- the first `motif size` hits, so a four-on-the-floor can stay put while
+  -- extra hits come and go.
   function Track:drift(len)
     self.passes = self.passes + 1
     local dr = self:p("drift") / 100
@@ -371,19 +377,24 @@ return function(Track)
     for l = 1, self:num_lanes() do
       self:update_order(len, l)
       local lane = self.lanes[l]
+      local eu = self:is_euclid(l) and self:euclid(l, len)
       local pinned, rerank = {}, false
       for s = 1, len do
-        if lane.order[s] <= motif then
+        local in_motif
+        if eu then in_motif = eu.ins[s] and eu.order[s] <= motif
+        else in_motif = lane.order[s] <= motif end
+        if in_motif then
           pinned[s] = true
         elseif math.random() < dr then
           local st = lane.steps[s]
           local home = anchor and anchor.lanes[l].steps[s]
           if home and math.random() < gr then
-            st.p, st.v, st.g = home.p, home.v, home.g
-            if rhythm and st.rr ~= home.rr then st.rr = home.rr; rerank = true end
+            st.p, st.v, st.g, st.x = home.p, home.v, home.g, home.x == true
+            if rhythm and not eu and st.rr ~= home.rr then st.rr = home.rr; rerank = true end
           else
             st.p, st.v, st.g = math.random(), math.random(), math.random()
-            if rhythm then st.rr = math.random(); rerank = true end
+            if eu then st.x = not st.x
+            elseif rhythm then st.rr = math.random(); rerank = true end
           end
           changed = true
         end

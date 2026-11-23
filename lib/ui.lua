@@ -207,6 +207,7 @@ function UI.track_changed(id) track_flash[id] = now() + 0.15 end
 -- per step: dot height 0..1 and whether it plays at the current density
 -- (buffers are reused every frame: drawing must not make garbage)
 local strip_buf = {}
+local lane_ord, lane_sh, lane_ins = {}, {}, {}
 
 local function strip(t)
   local len = t:p("len")
@@ -223,12 +224,21 @@ local function strip(t)
   local shown = math.floor(dens * len + 0.5)   -- same rule as Track:is_audible
   local motif = t:p("motif")
   local order1, steps1 = t.lanes[1].order, t.lanes[1].steps
+  if ty == 3 then
+    for l = 1, lanes do
+      lane_ord[l], lane_sh[l], lane_ins[l] = t:drum_lane(l, len, dens)
+      if not lane_ins[l] then lane_ins[l] = false end
+    end
+  end
   for s = 1, len do
     local lit, h, mask = false, 0.5, 0
     if ty == 3 then
       -- drums: height = lowest lane that plays (kick at the bottom)
       for l = lanes, 1, -1 do
-        if t.lanes[l].order[s] <= shown then lit, h, mask = true, (l - 1) / 7, mask | (1 << l) end
+        local ins = lane_ins[l]
+        if (not ins or ins[s]) and lane_ord[l][s] <= lane_sh[l] then
+          lit, h, mask = true, (l - 1) / 7, mask | (1 << l)
+        end
       end
     elseif ty == 4 then
       -- poly: height = pitch of the lowest-numbered voice that plays
@@ -508,8 +518,18 @@ local function track_rows()
   end
   if params:get(pre .. "type") == 3 then
     for l = 1, params:get(pre .. "voices") do
-      rows[#rows + 1] = pre .. "lane" .. l .. "_note"
-      rows[#rows + 1] = pre .. "lane" .. l .. "_role"
+      local lp = pre .. "lane" .. l .. "_"
+      rows[#rows + 1] = lp .. "note"
+      rows[#rows + 1] = lp .. "mode"
+      if params:get(lp .. "mode") == 2 then
+        rows[#rows + 1] = lp .. "hits"
+        rows[#rows + 1] = lp .. "rotate"
+      else
+        rows[#rows + 1] = lp .. "max"
+      end
+      rows[#rows + 1] = lp .. "from"
+      rows[#rows + 1] = lp .. "to"
+      rows[#rows + 1] = lp .. "role"
     end
   end
   rows[#rows + 1] = "shift"
@@ -547,12 +567,12 @@ local function page_track()
   if ty == 3 then
     -- drums: one row per lane
     local lanes = t:num_lanes()
-    for l = 1, lanes do t:update_order(len, l) end
     for l = 1, lanes do
       local ly = 34 - l * 3
+      local ord, sh, ins = t:drum_lane(l, len, dens)
       for s = 1, len do
         local dx, w = step_span(s, len, 96)
-        local on = t:is_audible(s, len, dens, l)
+        local on = (not ins or ins[s]) and ord[s] <= sh
         rect(1 + dx, ly, w, 2, on and ((D.C.playing and s == t.pos) and 15 or 10) or 3)
       end
     end
