@@ -11,7 +11,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **Motif.** The top `motif size` ranks (0–8, default 4) are never changed by drift. With a fader low you hear only the motif; pushed up, you hear ornaments around it.
 - **Slots.** Each track has 16 slots. A slot holds the 32 steps **and** length, division, range, drift, gravity and gate, so loading a slot gives you exactly what you saved. Stepping onto an empty slot generates a fresh sequence.
 - **Working copy vs anchor.** Each slot has a working copy (what plays) and an anchor (what was saved). Drift, re-roll and undo only touch the working copy. Saving is a deliberate action. "Unsaved" means working ≠ anchor. The working copy is autosaved to disk (on slot change, on exit, and every 30 s).
-- **Drift and gravity (Turing Machine style).** Drift is the chance per pass that a non-motif step mutates. Gravity is the chance that a mutated step snaps back to its anchor value. Drift writes to the working copy permanently. Undo history: 16 steps per track, covering re-rolls, drift snapshots and reverts.
+- **Drift and gravity (Turing Machine style).** Drift is the chance per pass that a non-motif step mutates. Gravity is the chance that a mutated step snaps back to its anchor value. Drift writes to the working copy permanently. Undo history: 16 steps per track, covering re-rolls, drift snapshots and reverts. When it is full the oldest entry drops silently (no confirmation; the user found it got in the way).
 - **Pickup.** All knobs use pickup: after a slot change, a knob does nothing until it passes the stored value, then it follows. While a knob hasn't caught up, the pop-up shows the stored value, the knob's position and an arrow (see Screen). Press SEND ALL on the MIDImix at boot to sync it.
 
 ## Harmony
@@ -27,6 +27,10 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **mono**: 1 voice.
 - **chord**: 2–8 voices stacked from the current chord or scale, with voice leading.
 - **drums**: 1–8 lanes. Each lane has its own note (GM defaults 36 38 42 46 39 45 49 51), its own rhythm and a role: kick (downbeats rank first), snare (backbeats first), hat (8ths, then 16ths) or perc (random ranking). Lanes share the track's fader and channel. Drums ignore harmony.
+  - **Fader layers**: each lane owns a stretch of the fader, `from`..`to` (defaults 0–100%, so every lane follows the whole fader). Below `from` the lane is silent; across the stretch it comes in step by step in rank order; above `to` it plays in full. `from` = `to` switches the whole lane on at that point. Example: kick 0–20, closed hat 20–40, open hat 40–60, perc 60–80, fill 80–100. 0% is always silent.
+  - **Lane mode**: `rank` (as above; `max` = the lane's density at the top of its stretch) or `euclid`: `hits` spread evenly over the track length, rotated right by `rotate` (4 hits = steps 1 5 9 13; 4 hits rotate 2 = 3 7 11 15). Hits come in on the fader in rank order, so a kick builds 1, then 9, then 5 and 13.
+  - **Euclid drift** (Turing Machine style): drift flips steps that are still on the pattern (hit ↔ rest) and stores the flip in the step data, so the variation repeats every pass. **Gravity pulls back to the plain euclid pattern** (not the anchor): every pass, each flipped step returns to the pattern with probability `gravity`, even at drift 0. Drift 0 + gravity up = the pattern comes home over a few bars; drift 0 + gravity 0 freezes the current variation. The motif is the first `motif size` hits, so with motif 4 a four-on-the-floor never loses a kick while extra kicks come and go. Flips are saved in the set files (the legato flag field: leg = 1, flip = 2, so older files still load).
+  - Lane mode, hits, rotate, max, from and to are per-track params (like note and role), not stored per slot.
 - **poly**: 2–8 independent melodic lines on the track's channel (set the synth part to poly). Each voice has its own pitch, velocity and gate seeds, its own random rhythm ranking, legato flags and motif, and uses the whole range (voices may cross or meet). Voices share length, division, range, tension and the MIDImix knobs. The track fader brings voices in one by one: voice 1 follows the fader, and voice n starts at (n−1)/voices of the travel, so every voice is at full density only at the top. On screen, the track page draws one mark per voice at its pitch; the main strip shows the lowest-numbered voice that plays.
 - **feel**:
   - `fixed gate` on/off: off = random length per step, on = gate %.
@@ -96,7 +100,6 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - loading a set while anchors are unsaved
   - clearing a slot
   - overwriting a set file
-  - when the undo history is about to drop a version that was never saved
 
 ## Persistence
 
@@ -107,7 +110,6 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - loading a set while any slot or the progression is unsaved
   - overwriting a set
   - `clear slot` (the current slot gets a fresh roll as working copy and anchor; lands on the next bar)
-  - undo full: dropping a phrase left behind by a re-roll or revert that was never saved. The action itself goes ahead; "no" keeps that version in the history (outside the 16-step limit). Drift steps and saved versions drop silently.
 
 ## Params
 
@@ -117,7 +119,7 @@ Every performance control is a norns param, so it can be MIDI-mapped.
   - shape: length, division, range, drift, gravity, gate
   - setup: type, voices, port, channel, base note, tension, motif size, restart
   - feel: fixed gate, velocity, vel, vel spread, legato, legato prob
-  - drum lanes: note and role per lane
+  - drum lanes: note, role, mode (rank/euclid), hits, rotate, max, fader from/to per lane
 - **Global**:
   - density offset, deadzone
   - root, scale, progression, chords, chord rate, harmony drift/gravity, next chord, home

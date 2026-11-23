@@ -137,9 +137,16 @@ local function update_visibility(i)
   for _, id in ipairs(PITCH_PARAMS) do vis(id, not drums) end
   vis("learn_all", drums)
   for l = 1, 8 do
+    local eu = params:get(pre .. "lane" .. l .. "_mode") == 2
     vis("lane" .. l .. "_note", drums)
     vis("lane" .. l .. "_role", drums)
     vis("lane" .. l .. "_learn", drums)
+    vis("lane" .. l .. "_mode", drums)
+    vis("lane" .. l .. "_hits", drums and eu)
+    vis("lane" .. l .. "_rotate", drums and eu)
+    vis("lane" .. l .. "_max", drums and not eu)
+    vis("lane" .. l .. "_from", drums)
+    vis("lane" .. l .. "_to", drums)
   end
   if _menu and _menu.rebuild_params then _menu.rebuild_params() end
 end
@@ -152,7 +159,7 @@ local function add_track_params(names)
     local function on_change(f)
       return function(x) if tracks[i] then f(tracks[i], x) end end
     end
-    params:add_group("track_" .. i, "track " .. i, 62)
+    params:add_group("track_" .. i, "track " .. i, 110)
     params:add_binary(pre .. "enabled", "enabled", "toggle", 1)
     params:set_action(pre .. "enabled", function(x)
       if x == 0 then Seq.flush_track(i) end
@@ -261,6 +268,16 @@ local function add_track_params(names)
       params:set_action(pre .. "lane" .. l .. "_role", on_change(function(t) t:rank_lane(l) end))
       params:add_trigger(pre .. "lane" .. l .. "_learn", "lane " .. l .. " learn")
       params:set_action(pre .. "lane" .. l .. "_learn", function() Learn.arm(i, l) end)
+      -- rank: steps come in by rank up to `max`; euclid: `hits` evenly
+      -- spread, rotated. `from`..`to` is the lane's stretch of the fader
+      local lp = pre .. "lane" .. l .. "_"
+      params:add_option(lp .. "mode", "lane " .. l .. " mode", Track.LANE_MODES, 1)
+      params:set_action(lp .. "mode", function() update_visibility(i) end)
+      params:add_number(lp .. "hits", "lane " .. l .. " hits", 0, K.MAX_STEPS, 4)
+      params:add_number(lp .. "rotate", "lane " .. l .. " rotate", 0, K.MAX_STEPS - 1, 0)
+      params:add_number(lp .. "max", "lane " .. l .. " max", 0, 100, 100, fmt_pct)
+      params:add_number(lp .. "from", "lane " .. l .. " from", 0, 100, 0, fmt_pct)
+      params:add_number(lp .. "to", "lane " .. l .. " to", 0, 100, 100, fmt_pct)
     end
   end
 end
@@ -284,10 +301,6 @@ function init()
   Track.on_slot_changed = function() S.due = true end
   Track.on_applied = function(t) UI.track_changed(t.id) end
   Track.on_slots_swapped = function(t, a, b) S.swap_slots(t.id, a, b) end
-  Track.ask_drop = function(t, e, answer)
-    Confirm.ask({"T" .. t.id .. " UNDO IS FULL", "DROP AN UNSAVED VERSION?"},
-      function() answer(true) end, function() answer(false) end)
-  end
   S.init(tracks, Cd, H, Confirm, first_param)
   S.hook_psets()
 
