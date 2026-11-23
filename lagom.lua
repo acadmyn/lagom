@@ -272,9 +272,11 @@ local function add_track_params(names)
       -- spread, rotated. `from`..`to` is the lane's stretch of the fader
       local lp = pre .. "lane" .. l .. "_"
       params:add_option(lp .. "mode", "lane " .. l .. " mode", Track.LANE_MODES, 1)
-      params:set_action(lp .. "mode", function() update_visibility(i) end)
+      params:set_action(lp .. "mode", function() update_visibility(i); dirty() end)
       params:add_number(lp .. "hits", "lane " .. l .. " hits", 0, K.MAX_STEPS, 4)
+      params:set_action(lp .. "hits", dirty)
       params:add_number(lp .. "rotate", "lane " .. l .. " rotate", 0, K.MAX_STEPS - 1, 0)
+      params:set_action(lp .. "rotate", dirty)
       params:add_number(lp .. "max", "lane " .. l .. " max", 0, 100, 100, fmt_pct)
       params:add_number(lp .. "from", "lane " .. l .. " from", 0, 100, 0, fmt_pct)
       params:add_number(lp .. "to", "lane " .. l .. " to", 0, 100, 100, fmt_pct)

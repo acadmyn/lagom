@@ -8,6 +8,16 @@ local DRIFT_COALESCE = 4   -- passes: drift snapshots closer than this merge
 
 -- shape params stored with every slot
 local SHAPE = {"len", "div", "range", "drift", "gravity", "gate"}
+-- drum lane rhythm (euclid patterns) is stored with every slot too
+local LANE_SHAPE = {}
+for l = 1, 8 do
+  for _, k in ipairs({"mode", "hits", "rotate"}) do
+    LANE_SHAPE[#LANE_SHAPE + 1] = "lane" .. l .. "_" .. k
+  end
+end
+local SHAPE_ALL = {}
+for _, k in ipairs(SHAPE) do SHAPE_ALL[#SHAPE_ALL + 1] = k end
+for _, k in ipairs(LANE_SHAPE) do SHAPE_ALL[#SHAPE_ALL + 1] = k end
 
 local STEP_FIELDS = {"p", "v", "g", "rr", "leg", "r", "x"}
 
@@ -91,7 +101,7 @@ local function unflat_lane(f)
 end
 
 local function shape_equal(a, b)
-  for _, k in ipairs(SHAPE) do
+  for _, k in ipairs(SHAPE_ALL) do
     if a[k] ~= b[k] then return false end
   end
   return true
@@ -100,6 +110,7 @@ end
 return function(Track)
 
   Track.SHAPE = SHAPE
+  Track.LANE_SHAPE = LANE_SHAPE
   Track.NUM_SLOTS = NUM_SLOTS
   Track.on_shape_loaded = nil   -- callback(track id): knobs lose pickup
   Track.on_slot_changed = nil   -- callback(track): autosave
@@ -107,12 +118,14 @@ return function(Track)
 
   function Track:capture_shape()
     local sh = {}
-    for _, k in ipairs(SHAPE) do sh[k] = self:p(k) end
+    for _, k in ipairs(SHAPE_ALL) do sh[k] = self:p(k) end
     return sh
   end
 
   function Track:apply_shape(sh)
-    for _, k in ipairs(SHAPE) do params:set("t" .. self.id .. "_" .. k, sh[k]) end
+    for _, k in ipairs(SHAPE_ALL) do
+      if sh[k] ~= nil then params:set("t" .. self.id .. "_" .. k, sh[k]) end
+    end
     if Track.on_shape_loaded then Track.on_shape_loaded(self.id) end
   end
 
@@ -413,7 +426,15 @@ return function(Track)
 
   function Track:import(d)
     self.slots = {}
+    -- slots saved before a shape key existed take its current value
+    local now = self:capture_shape()
+    local function fill(sh)
+      sh = sh or {}
+      for _, k in ipairs(SHAPE_ALL) do if sh[k] == nil then sh[k] = now[k] end end
+      return sh
+    end
     for n, s in pairs(d.slots or {}) do
+      s.shape, s.anchor.shape = fill(s.shape), fill(s.anchor.shape)
       local anchor, work = {}, {}
       for l, f in ipairs(s.anchor.lanes) do anchor[l] = unflat_lane(f) end
       for l, w in ipairs(s.work) do
