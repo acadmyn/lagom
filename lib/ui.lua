@@ -480,6 +480,15 @@ local function param_list(page, rows, y, n)
     elseif id == "move" then
       txt(2, ry, "MOVE SLOT", on and 15 or 5)
       txt(62, ry, "< " .. D.tracks[UI.sel].slot .. " >", on and 15 or 9)
+    elseif id:match("^hchord") then
+      local ci = tonumber(id:sub(7))
+      txt(2, ry, "CHORD " .. ci, on and 15 or 5)
+      txt(62, ry, D.H.chord_label(D.Cd.working[ci].d), on and 15 or 9)
+    elseif id:match("^hlen") then
+      local ci = tonumber(id:sub(5))
+      local len = D.Cd.working[ci].len
+      txt(2, ry, "CHORD " .. ci .. " LENGTH", on and 15 or 5)
+      txt(62, ry, len .. (len == 1 and " BAR" or " BARS"), on and 15 or 9)
     else
       local p = params:lookup_param(id)
       txt(2, ry, string.upper(p.name), on and 15 or 5)
@@ -539,8 +548,31 @@ local function track_rows()
   return rows
 end
 
-local HARMONY_ROWS = {"root", "scale", "progression", "chords", "chord_rate",
-                      "harmony_drift", "harmony_gravity"}
+-- harmony page: two stops per chord (hchordN = degree, hlenN = length),
+-- then params. rebuilt when the chord count changes; the selection follows
+-- the item it was on
+local HARMONY_PARAMS = {"harmony_slot", "chords", "progression", "reroll_progression",
+                        "chord_rate", "root", "scale", "harmony_drift", "harmony_gravity"}
+local h_rows, h_rows_n = {}, -1
+
+local function harmony_rows()
+  local n = #D.Cd.working
+  if n == h_rows_n then return h_rows end
+  local was = h_rows[UI.sel_param[3] or 1]
+  h_rows = {}
+  for i = 1, n do
+    h_rows[#h_rows + 1] = "hchord" .. i
+    h_rows[#h_rows + 1] = "hlen" .. i
+  end
+  for _, id in ipairs(HARMONY_PARAMS) do h_rows[#h_rows + 1] = id end
+  h_rows_n = n
+  if was then
+    for k, id in ipairs(h_rows) do
+      if id == was then UI.sel_param[3] = k; break end
+    end
+  end
+  return h_rows
+end
 
 local function clock_rows()
   local rows = {"clock_tempo", "lagom_clock_mode", "lagom_clock_in", "beats_per_bar",
@@ -629,27 +661,46 @@ local function page_harmony()
   local H, Cd = D.H, D.Cd
   local mode = params:string("progression")
   header_page("HARMONY", H.key_label() .. "  " .. string.upper(mode))
+  txt_r(121, 1, Cd.target_slot() .. (Cd.unsaved() and "*" or " "),
+        (Cd.pending_slot and blink()) and 2 or 11)
 
-  -- progression boxes
+  -- progression boxes: width follows each chord's length (at least 12 px).
+  -- dots under a box = its bars; the selected chord gets a bright frame
+  local rows = harmony_rows()
+  local sel = rows[UI.sel_param[3]] or ""
+  local sel_i = tonumber(sel:match("^hchord(%d)") or sel:match("^hlen(%d)") or "")
+  local sel_len = sel:match("^hlen") ~= nil
   local n = #Cd.working
-  local w = math.floor(124 / n) - 2
-  local rate = Cd.RATES[params:get("chord_rate")]
+  local total = 0
+  for _, ch in ipairs(Cd.working) do total = total + ch.len end
+  local avail = 124 - 2 * (n - 1)
+  local minw = math.min(12, avail // n)
+  local extra = avail - minw * n
   local bar = params:get("beats_per_bar") * K.PPQN
-  for i, deg in ipairs(Cd.working) do
-    local x, y = 1 + (i - 1) * (w + 2), 11
-    local label = H.chord_label(deg):match("^(%S+)")
+  local x, y = 1, 11
+  for i, ch in ipairs(Cd.working) do
+    local w = minw + math.floor(extra * ch.len / total)
+    local label = H.chord_label(ch.d):match("^(%S+)")
+    local a = Cd.anchor[i]
+    local changed = not a or a.d ~= ch.d or a.len ~= ch.len
     if i == Cd.idx then
       local flash = now() < chord_flash_until
       rect(x, y, w, 13, flash and 8 or 15)
       txt_c(x + w / 2, y + 4, label, 0)
       -- progress through this chord's bars
-      local frac = ((Cd.bars + (rel_ticks() % bar) / bar) / rate)
+      local frac = ((Cd.bars + (rel_ticks() % bar) / bar) / ch.len)
       rect(x, 26, math.floor(w * math.min(1, frac) + 0.5), 1, 10)
     else
       local pend = (Cd.pending_next and i == (Cd.idx % n) + 1) and blink()
       frame(x, y, w, 13, pend and 12 or 4)
-      txt_c(x + w / 2, y + 4, label, Cd.anchor[i] ~= deg and 15 or 7)
+      txt_c(x + w / 2, y + 4, label, changed and 15 or 7)
     end
+    if i == sel_i and not sel_len then frame(x - 1, y - 1, w + 2, 15, 15) end
+    local bw = math.max(1, w // ch.len)
+    for b = 0, ch.len - 1 do
+      rect(x + b * bw, 28, math.max(1, bw - 1), 1, (i == sel_i and sel_len) and 15 or 3)
+    end
+    x = x + w + 2
   end
 
   -- keyboard: bright = chord tones, dim = scale
@@ -673,8 +724,8 @@ local function page_harmony()
     end
   end
 
-  param_list(3, HARMONY_ROWS, 56, 1)
-  txt_r(121, 56, UI.sel_param[3] .. "/" .. #HARMONY_ROWS, 3)
+  param_list(3, rows, 56, 1)
+  txt_r(121, 56, UI.sel_param[3] .. "/" .. #rows, 3)
 end
 
 -- clock page -----------------------------------------------------------------------
@@ -711,7 +762,7 @@ local function scene_is_current(sc)
   for i, t in ipairs(D.tracks) do
     if sc[i] ~= t:target_slot() then return false end
   end
-  return true
+  return sc.h == nil or sc.h == D.Cd.target_slot()
 end
 
 local function page_scenes()
@@ -724,6 +775,7 @@ local function page_scenes()
     if sel then rect(x, y, 29, 25, 4) end
     frame(x, y, 29, 25, sc and 9 or 3)
     txt(x + 3, y + 3, k, sel and 15 or (sc and 9 or 4))
+    if sc and sc.h then txt(x + 9, y + 3, "H" .. sc.h, sel and 12 or 6) end
     if sc then
       if scene_is_current(sc) then rect(x + 23, y + 3, 3, 3, 15) end
       for i = 1, K.NUM_TRACKS do
@@ -832,7 +884,7 @@ end
 
 local function rows_of(page)
   if page == 2 then return track_rows() end
-  if page == 3 then return HARMONY_ROWS end
+  if page == 3 then return harmony_rows() end
   if page == 4 then return clock_rows() end
 end
 
@@ -861,6 +913,14 @@ function UI.enc(n, d)
         return
       elseif id == "move" then
         params:set("t" .. UI.sel .. (d > 0 and "_move_later" or "_move_earlier"), 1)
+        return
+      elseif id:match("^hchord") then
+        local ci = tonumber(id:sub(7))
+        D.Cd.set_degree(ci, D.Cd.working[ci].d + d)
+        return
+      elseif id:match("^hlen") then
+        local ci = tonumber(id:sub(5))
+        D.Cd.set_len(ci, D.Cd.working[ci].len + d)
         return
       end
       local p = params:lookup_param(id)
