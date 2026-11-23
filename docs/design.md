@@ -17,7 +17,11 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 ## Harmony
 
 - A global `root` and `scale` (the musicutil list). Changes land on the next bar.
-- **Conductor**: a loop of 1–8 chords drawn from the scale (1 = stay on the home chord). `progression` = drone / markov / preset 1…n. `chord rate` = 1/2/4/8 bars. It has its own working copy and anchor, plus `harmony drift` and `harmony gravity`.
+- **Conductor**: 16 **progression slots** (a song is a collection of slots, so harmony is slotted too). Each slot is a loop of 1–8 chords; each chord is a scale degree with its **own length** (1–8 bars). Each slot has its own working copy and anchor, plus `harmony drift` and `harmony gravity` (drift swaps degrees, never lengths; gravity pulls back to the anchor).
+  - `progression` = drone / markov / preset 1…n is the generator: it fills an empty slot and is what a re-roll (or changing `progression`) uses. `chord length` (param id `chord_rate`, 1/2/4/8 bars) is the length new chords get.
+  - `chords` grows or shrinks the current loop (new chords: a markov step from the last one in markov mode, else a copy of it).
+  - `progression slot` switches slots; the change lands on the next bar. There is no MIDImix control for it (user's choice): use the harmony page or scenes.
+  - Planned (issue #31 part 2): accidentals and chord qualities, with tensions following the chord.
   - Markov mode uses weighted functional moves (tonic → subdominant/dominant → tonic, occasionally deceptive or modal moves).
 - **Tension per track**: `root` / `5th` / `chord` / `scale` (strong beats biased to chord tones) / `color` (adds 7ths, 9ths and passing tones on weak beats).
 - Default templates: T1 drums, T2 bass (5th), T3 chord, T4 lead (scale), T5–T8 mono (scale).
@@ -91,7 +95,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **Pages** (as built in step 7):
   - main: E2 selects a track (its number is inverted), E3 steps its slot. Each row also shows length and division as numbers (the user asked for this).
   - track: the selected track's step graph (drums: one row per lane), then a param list (E2 select, E3 change, `clear slot` at the end).
-  - harmony: progression boxes (current one filled, bar-progress line under it), a two-octave keyboard (bright = chord tones, dim = scale), then one param row (root, scale, progression, chords, chord rate, harmony drift/gravity).
+  - harmony: the chord editor. Progression boxes, their width following each chord's length (at least 12 px), the current one filled with a bar-progress line under it, a dot per bar under each box; the slot number top right (`*` = unsaved, blinking = pending). A two-octave keyboard (bright = chord tones, dim = scale), then one row. E2 steps through two stops per chord (degree: bright frame around the box; length: its bar dots light up), then progression slot, chords, progression, re-roll, chord length, root, scale, harmony drift/gravity. E3 changes the selected item.
   - clock: big tempo, master/slave, playing, beat boxes, clock in/out, then a param list (tempo, mode, ports, beats per bar, controller port, clock out per connected port).
   - scenes: 8 boxes showing each track's slot as a bar. E2/E3 select, **K3 recall, K2 store** (asks before overwriting).
   - K2 on any page except main and scenes goes back to main.
@@ -104,7 +108,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 ## Persistence
 
 - A **set** holds 8 tracks × 16 slots (working copy + anchor), the conductor and scenes. It is bound to a norns pset number (`params.action_write/read`).
-- **Scenes 1–8** store every track's slot number. Recall lands on the next bar. Params: `store scene n` / `recall scene n`.
+- **Scenes 1–8** store every track's slot number and the progression slot (shown as `H n` on the scenes page; scenes stored before this leave the progression alone). Recall lands on the next bar. Params: `store scene n` / `recall scene n`.
 - **Autosave** (on slot change, on exit, every 30 s) writes the whole state plus lagom's params; boot restores it, so a reboot picks up where you left off. After a restore the knobs need pickup.
 - **Confirmations** (norns screen, K3 yes / K2 no; a question from the menu jumps back to the play screen):
   - loading a set while any slot or the progression is unsaved
@@ -122,7 +126,7 @@ Every performance control is a norns param, so it can be MIDI-mapped.
   - drum lanes: note, role, mode (rank/euclid), hits, rotate, max, fader from/to per lane
 - **Global**:
   - density offset, deadzone
-  - root, scale, progression, chords, chord rate, harmony drift/gravity, next chord, home
+  - root, scale, progression slot, progression, chords, chord length, harmony drift/gravity, next chord, home
   - play, beats per bar
   - clock mode, clock in port, clock out ports, controller port
   - scenes store/recall

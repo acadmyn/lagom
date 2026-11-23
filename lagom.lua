@@ -75,9 +75,12 @@ local function add_harmony_params()
   params:set_action("scale", stage)
   params:add_option("progression", "progression", Cd.mode_names(), 2)
   params:set_action("progression", function() Cd.reroll() end)
-  params:add_number("chords", "chords", 1, 8, 4)
-  params:set_action("chords", function() if Cd.mode() == 2 then Cd.reroll() end end)
-  params:add_option("chord_rate", "chord rate", Cd.RATE_NAMES, 2)
+  params:add_number("harmony_slot", "progression slot", 1, Cd.NUM_SLOTS, 1)
+  params:set_action("harmony_slot", function(x) Cd.request_slot(x, not C.playing) end)
+  params:add_number("chords", "chords", 1, Cd.MAX_CHORDS, 4)
+  params:set_action("chords", function(x) Cd.set_count(x) end)
+  -- the length new chords get (each chord has its own length)
+  params:add_option("chord_rate", "chord length", Cd.RATE_NAMES, 2)
   params:add_number("harmony_drift", "harmony drift", 0, 100, 0, fmt_pct)
   params:add_number("harmony_gravity", "harmony gravity", 0, 100, 50, fmt_pct)
   params:add_trigger("next_chord", "next chord")
@@ -308,6 +311,7 @@ function init()
 
   Cd.init(H)
   Cd.on_change = function() Mix.blink_bank_right(); UI.chord_changed() end
+  Cd.on_slot = function() S.due = true end
   C.init(Out,
     function() Seq.reset(); Cd.start(); Seq.catch_up() end,
     function() Seq.stop_all() end)

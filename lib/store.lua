@@ -4,7 +4,7 @@
 local K = include("lib/const")
 
 local S = {
-  scenes = {},        -- [1..8] = {slot per track} or nil
+  scenes = {},        -- [1..8] = {slot per track, h = progression slot} or nil
   due = false,        -- autosave soon (slot change)
 }
 
@@ -176,7 +176,7 @@ local function encode_set(with_params, yield)
   end
   local out = {}
   ser({scenes = S.scenes, params = with_params and params_raw() or nil,
-       conductor = {working = Cd.working, anchor = Cd.anchor, idx = Cd.idx}}, out)
+       conductor = Cd.export()}, out)
   parts[#parts + 1] = "},"
   parts[#parts + 1] = table.concat(out):sub(2)
   parts[#parts + 1] = "\n"
@@ -192,13 +192,7 @@ local function restore(d)
   for i, t in ipairs(tracks) do
     if d.tracks and d.tracks[i] then t:import(d.tracks[i]) end
   end
-  local c = d.conductor
-  if c and c.working and #c.working > 0 then
-    Cd.working, Cd.anchor = c.working, c.anchor or c.working
-    Cd.idx = util.clamp(c.idx or 1, 1, #Cd.working)
-    Cd.pending_next, Cd.pending_home = false, false
-    H.set_degree(Cd.working[Cd.idx])
-  end
+  if d.conductor then Cd.import(d.conductor) end
   S.scenes = d.scenes or {}
 end
 
@@ -210,7 +204,9 @@ function S.init(trs, conductor, harmony, confirm, first)
 end
 
 function S.anything_unsaved()
-  if Cd.unsaved() then return true end
+  for n in pairs(Cd.slots) do
+    if Cd.slot_unsaved(n) then return true end
+  end
   for _, t in ipairs(tracks) do
     for n in pairs(t.slots) do
       if t:slot_unsaved(n) then return true end
@@ -261,6 +257,7 @@ end
 function S.hook_psets()
   params:set_save("play", false)
   for i = 1, K.NUM_TRACKS do params:set_save("t" .. i .. "_slot", false) end
+  params:set_save("harmony_slot", false)
 
   params.action_write = function(_, _, number)
     if number then write_atomic(set_path(number), encode_set(false)) end
@@ -308,6 +305,7 @@ end
 function S.store_scene(k)
   local sc = {}
   for i, t in ipairs(tracks) do sc[i] = t:target_slot() end
+  sc.h = Cd.target_slot()
   S.scenes[k] = sc
   S.due = true
 end
@@ -327,6 +325,7 @@ function S.recall_scene(k, now)
   for i, t in ipairs(tracks) do
     if sc[i] then t:request("slot", sc[i], now) end
   end
+  if sc.h then Cd.request_slot(sc.h, now) end
   return true
 end
 
