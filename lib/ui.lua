@@ -312,10 +312,17 @@ local function header_main()
   dotted(7)
 end
 
+-- info is cut short so it never reaches the slot number in the top right
+local HEADER_INFO_END = 106
 local function header_page(title, info)
   if not header_message() then
     txt(0, 1, title, 15)
-    if info then txt(width(title) + 5, 1, info, 6) end
+    if info then
+      local x = width(title) + 5
+      local fit = (HEADER_INFO_END - x + 1) // 4
+      if #info > fit then info = info:sub(1, math.max(0, fit)) end
+      txt(x, 1, info, 6)
+    end
   end
   dotted(7)
 end
@@ -679,8 +686,10 @@ local BLACK = {{1, 1}, {3, 2}, {6, 4}, {8, 5}, {10, 6}}   -- pc, after white key
 
 local function page_harmony()
   local H, Cd = D.H, D.Cd
-  local mode = params:string("progression")
-  header_page("HARMONY", H.key_label() .. "  " .. string.upper(mode))
+  -- presets as P1..Pn here; the progression row shows the full name
+  local m = Cd.mode()
+  local mode = m > 2 and ("P" .. (m - 2)) or string.upper(params:string("progression"))
+  header_page("HARMONY", H.key_label() .. "  " .. mode)
   txt_r(121, 1, Cd.target_slot() .. (Cd.unsaved() and "*" or " "),
         (Cd.pending_slot and blink()) and 2 or 11)
 
