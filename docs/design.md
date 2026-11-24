@@ -17,11 +17,12 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 ## Harmony
 
 - A global `root` and `scale` (the musicutil list). Changes land on the next bar.
-- **Conductor**: 16 **progression slots** (a song is a collection of slots, so harmony is slotted too). Each slot is a loop of 1–8 chords; each chord is a scale degree with an accidental (♭/♮/♯, relative to the scale's own degree), a quality and its **own length** (1–8 bars). Each slot has its own working copy and anchor, plus `harmony drift` and `harmony gravity` (drift swaps a chord for a plain diatonic one, never touching lengths; gravity pulls back to the anchor chord).
+- **Conductor**: 16 **progression slots** (a song is a collection of slots, so harmony is slotted too). Each slot is a loop of 1–8 chords; each chord is a scale degree with an accidental (♭/♮/♯, relative to the scale's own degree), a quality, a transpose and its **own length** (1–8 bars). Each slot has its own working copy and anchor, plus `harmony drift` and `harmony gravity` (drift swaps a chord for a plain diatonic one, never touching lengths; gravity pulls back to the anchor chord).
   - `progression` = drone / markov / preset 1…n is the generator: it fills an empty slot and is what a re-roll (or changing `progression`) uses. `chord length` (param id `chord_rate`, 1/2/4/8 bars) is the length new chords get.
   - `chords` grows or shrinks the current loop (new chords: a markov step from the last one in markov mode, else a copy of it).
   - `progression slot` switches slots; the change lands on the next bar. There is no MIDImix control for it (user's choice): use the harmony page or scenes.
   - Qualities: `auto` (the diatonic triad; with ♭ it's major, with ♯ diminished), maj, min, dim, aug, sus2, sus4, 6, m6, 7, maj7, m7, m7♭5, dim7, mMaj7, 9, maj9, m9, 7♭9, 7♯9, 11 (no 3rd), 13. Chord tones have an importance order for voicing (root, 3rd, 7th/6th, extensions, 5th last).
+  - **Transpose** (−14…+14 scale steps, 0 = off), like the Metropolix's in-scale transpose: the chord and the notes move N scale steps. I +2 plays as iii (accidental and quality carry over, so `auto` stays diatonic), and tracks that follow move their range by the same distance as the chord root, so +7 is the same chord an octave up. Tracks with `follow transpose` off ignore it entirely (untransposed chord and register; polychords allowed on purpose). Drift resets a mutated chord's transpose to 0; gravity restores the anchor's.
   - Labels: roman numeral with accidental, case (lowercase = minor 3rd), `o`/`+` and figure (`ii7`, `bVIIM7`), then the chord name. The key spells with flats when that gives its notes distinct letters (F minor: A♭, not G♯).
   - Markov mode uses weighted functional moves (tonic → subdominant/dominant → tonic, occasionally deceptive or modal moves).
 - **Tension per track**: `root` / `5th` / `chord` / `scale` (strong beats biased to chord tones) / `color` (adds 7ths, 9ths and passing tones on weak beats). Tensions follow the chord:
@@ -98,7 +99,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 - **Pages** (as built in step 7):
   - main: E2 selects a track (its number is inverted), E3 steps its slot. Each row also shows length and division as numbers (the user asked for this).
   - track: the selected track's step graph (drums: one row per lane), then a param list (E2 select, E3 change, `clear slot` at the end).
-  - harmony: the chord editor. Progression boxes, their width following each chord's length (at least 12 px), the current one filled with a bar-progress line under it, each box labelled with its numeral (plus figure when it fits, e.g. `ii7`), a dot per bar under each box; the slot number top right (`*` = unsaved, blinking = pending). A two-octave keyboard (bright = chord tones, dim = chord scale), then one row. E2 steps through four stops per chord (degree, accidental, quality: bright frame around the box; length: its bar dots light up), then progression slot, chords, progression, re-roll, chord length, root, scale, harmony drift/gravity. E3 changes the selected item.
+  - harmony: the chord editor. Progression boxes, their width following each chord's length (at least 12 px), the current one filled with a bar-progress line under it, each box labelled with its numeral (plus figure and transpose when they fit, e.g. `ii7`, `i+2`), a dot per bar under each box; the slot number top right (`*` = unsaved, blinking = pending). A two-octave keyboard (bright = chord tones, dim = chord scale, both as transposed), then one row. E2 steps through five stops per chord (degree, accidental, quality, transpose: bright frame around the box; length: its bar dots light up), then progression slot, chords, progression, re-roll, chord length, root, scale, harmony drift/gravity. E3 changes the selected item.
   - clock: big tempo, master/slave, playing, beat boxes, clock in/out, then a param list (tempo, mode, ports, beats per bar, controller port, clock out per connected port).
   - scenes: 8 boxes showing each track's slot as a bar. E2/E3 select, **K3 recall, K2 store** (asks before overwriting).
   - K2 on any page except main and scenes goes back to main.
@@ -124,7 +125,7 @@ Every performance control is a norns param, so it can be MIDI-mapped.
 - **Per track**:
   - perform: density, mute, reroll, save, revert, undo, slot, slot next/prev
   - shape: length, division, range, drift, gravity, gate, gate min, gate max
-  - setup: type, voices, port, channel, base note, tension, motif size, restart
+  - setup: type, voices, port, channel, base note, tension, follow transpose, motif size, restart
   - feel: fixed gate, velocity, vel, vel spread, legato, legato prob
   - drum lanes: note, role, mode (rank/euclid), hits, rotate, max, fader from/to per lane
 - **Global**:

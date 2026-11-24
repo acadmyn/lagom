@@ -6,7 +6,8 @@ local H = {
   root = 0,          -- active pitch class 0..11
   scale = 1,         -- active index into MU.SCALES
   degree = 1,        -- current chord degree (1-based), set by the conductor
-  chord = {d = 1, acc = 0, q = 1},  -- current chord (a copy), set by the conductor
+  chord = {d = 1, acc = 0, q = 1, tr = 0},  -- current chord (a copy), set by the conductor
+  chord_t = {d = 1, acc = 0, q = 1, shift = 0},  -- it transposed by tr scale steps
   version = 0,       -- bumps whenever any of the above change (pool caches)
   pending = false,
 }
@@ -77,6 +78,13 @@ local function pc(k)
   return (H.root + iv[(k % n) + 1]) % 12
 end
 
+-- absolute semitone of scale step k above the root (octaves included)
+local function semis(k)
+  local iv = ivs(H.scale)
+  local n = #iv
+  return iv[(k % n) + 1] + 12 * (k // n)
+end
+
 -- diatonic chord tone j (0 = root, 1 = 3rd, 2 = 5th, 3 = 7th, 4 = 9th) of a degree
 function H.chord_tone(degree, j) return pc(degree - 1 + 2 * j) end
 
@@ -117,10 +125,11 @@ end
 -- chord scale (scale/color off the beat): the scale plus the chord tones,
 -- where scale notes give way to a chord tone a semitone away if that tone is
 -- outside the scale, or was altered from them (e.g. the 3rd under a sus4)
-local cache = {version = -1}
+-- two caches: [false] = the chord as written (tracks not following
+-- transpose), [true] = transposed
+local cache = {[false] = {version = -1}, [true] = {version = -1}}
 
-local function rebuild()
-  local ch = H.chord
+local function rebuild(ch)
   local tones = H.tones(ch)
   local has, pos, order = {}, {}, {}
   for _, t in ipairs(tones) do
@@ -157,7 +166,7 @@ local function rebuild()
       end
     end
   end
-  cache = {
+  return {
     version = H.version,
     root = set {root},
     fifth = set {root, fifth or root},
@@ -168,15 +177,21 @@ local function rebuild()
   }
 end
 
-local function current()
-  if cache.version ~= H.version then rebuild() end
-  return cache
+local function current(follow)
+  follow = follow == true
+  local c = cache[follow]
+  if c.version ~= H.version then
+    c = rebuild(follow and H.chord_t or H.chord)
+    cache[follow] = c
+  end
+  return c
 end
 
--- allowed pitch classes for a tension; strong = step falls on a beat.
+-- allowed pitch classes for a tension; strong = step falls on a beat;
+-- follow = the track follows the chord's transpose.
 -- the returned sets are shared: don't modify them
-function H.pcs(tension, strong)
-  local c = current()
+function H.pcs(tension, strong, follow)
+  local c = current(follow)
   if tension == 1 then return c.root end
   if tension == 2 then return c.fifth end
   if tension == 3 then return c.chord end
@@ -188,14 +203,27 @@ function H.pcs(tension, strong)
 end
 
 -- chord tones in voicing importance order (auto chords add the 7th and 9th)
-function H.voice_order() return current().order end
+function H.voice_order(follow) return current(follow).order end
+
+-- semitones a following track's range moves for the current transpose
+function H.shift(follow) return follow and H.chord_t.shift or 0 end
+
+-- the transposed chord: degree moved tr scale steps (accidental and quality
+-- carry over), shift = how far its root moved, octaves included
+local function retranspose()
+  local c, t = H.chord, H.chord_t
+  local k = c.d - 1 + c.tr
+  t.d, t.acc, t.q = (k % H.size()) + 1, c.acc, c.q
+  t.shift = semis(k) - semis(c.d - 1)
+end
 
 function H.set_chord(ch)
   local c = H.chord
-  local acc, q = ch.acc or 0, ch.q or 1
-  if ch.d ~= c.d or acc ~= c.acc or q ~= c.q then
-    c.d, c.acc, c.q = ch.d, acc, q
+  local acc, q, tr = ch.acc or 0, ch.q or 1, ch.tr or 0
+  if ch.d ~= c.d or acc ~= c.acc or q ~= c.q or tr ~= c.tr then
+    c.d, c.acc, c.q, c.tr = ch.d, acc, q, tr
     H.degree = ch.d
+    retranspose()
     H.version = H.version + 1
   end
 end
@@ -211,6 +239,7 @@ function H.apply()
   if not H.pending then return end
   H.root, H.scale = want_root, want_scale
   if H.degree > H.size() then H.degree = 1; H.chord.d = 1 end
+  retranspose()
   H.pending = false
   H.version = H.version + 1
 end
@@ -279,13 +308,20 @@ end
 
 -- labels are drawn every frame: cache them per chord until root/scale change
 local labels, labels_ver = {}, -1
-local function label(ch)
+local function label_of(d, acc, q)
   local v = H.root * 1000 + H.scale
   if v ~= labels_ver then labels, labels_ver = {}, v end
-  local k = ch.d * 100 + ((ch.acc or 0) + 1) * 30 + (ch.q or 1)
+  local k = d * 100 + (acc + 1) * 30 + q
   local l = labels[k]
-  if not l then l = parts(ch); labels[k] = l end
+  if not l then l = parts({d = d, acc = acc, q = q}); labels[k] = l end
   return l
+end
+
+local function label(ch) return label_of(ch.d, ch.acc or 0, ch.q or 1) end
+
+-- label of a chord as transposed by its tr ("iii Em" for I +2)
+function H.transposed_label(ch)
+  return label_of(((ch.d - 1 + (ch.tr or 0)) % H.size()) + 1, ch.acc or 0, ch.q or 1)[3]
 end
 
 -- e.g. "ii Dm", "V7 G7", "bVII Bb", "viio Bdim"

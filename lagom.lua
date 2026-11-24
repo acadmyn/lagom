@@ -130,7 +130,7 @@ local function add_global_params(names)
 end
 
 -- show only the params that matter for a track's type
-local PITCH_PARAMS = {"range", "tension", "base", "legato", "legprob"}
+local PITCH_PARAMS = {"range", "tension", "base", "legato", "legprob", "follow"}
 local function update_visibility(i)
   local pre = "t" .. i .. "_"
   local ty = params:get(pre .. "type")
@@ -258,6 +258,7 @@ local function add_track_params(names)
     params:add_number(pre .. "ch", "channel", 1, 16, i)
     params:add_number(pre .. "base", "base note", 0, 127, tpl[3], note_name)
     params:add_option(pre .. "tension", "tension", H.TENSIONS, tpl[2])
+    params:add_binary(pre .. "follow", "follow transpose", "toggle", 1)
     params:add_option(pre .. "restart", "restart", Track.RESTART_NAMES, 1)
     params:add_number(pre .. "motif", "motif size", 0, 8, 4)
     -- feel

@@ -1,5 +1,6 @@
 -- the conductor: 16 progression slots. each slot is a loop of chords
--- ({d = scale degree, acc = -1/0/1, q = quality index, len = bars}) with a working copy (plays, edited, drifts)
+-- ({d = scale degree, acc = -1/0/1, q = quality index, tr = transpose in
+-- scale steps, len = bars}) with a working copy (plays, edited, drifts)
 -- and an anchor (what was saved). drift/gravity mutate the working copy once
 -- per pass through the loop. slot changes land on the next bar.
 local Cd = {
@@ -85,15 +86,17 @@ local function markov_chain(n)
   return best
 end
 
-local function chord(d, len, acc, q) return {d = d, acc = acc or 0, q = q or 1, len = len} end
+local function chord(d, len, acc, q, tr)
+  return {d = d, acc = acc or 0, q = q or 1, tr = tr or 0, len = len}
+end
 
 local function copy(t)
   local c = {}
-  for i, ch in ipairs(t) do c[i] = chord(ch.d, ch.len, ch.acc, ch.q) end
+  for i, ch in ipairs(t) do c[i] = chord(ch.d, ch.len, ch.acc, ch.q, ch.tr) end
   return c
 end
 
-local function same(a, b) return a.d == b.d and a.acc == b.acc and a.q == b.q end
+local function same(a, b) return a.d == b.d and a.acc == b.acc and a.q == b.q and a.tr == b.tr end
 
 local function equal(a, b)
   if #a ~= #b then return false end
@@ -173,6 +176,15 @@ function Cd.set_acc(i, a)
   if i == Cd.idx then H.set_chord(ch) end
 end
 
+Cd.MAX_TR = 14
+
+function Cd.set_tr(i, v)
+  local ch = Cd.working[i]
+  if not ch then return end
+  ch.tr = util.clamp(v, -Cd.MAX_TR, Cd.MAX_TR)
+  if i == Cd.idx then H.set_chord(ch) end
+end
+
 function Cd.set_quality(i, q)
   local ch = Cd.working[i]
   if not ch then return end
@@ -194,7 +206,7 @@ function Cd.set_count(n)
     if Cd.mode() == 2 then
       w[#w + 1] = chord(markov_step(last.d), default_len())
     else
-      w[#w + 1] = chord(last.d, default_len(), last.acc, last.q)
+      w[#w + 1] = chord(last.d, default_len(), last.acc, last.q, last.tr)
     end
   end
   while #w > n do w[#w] = nil end
@@ -228,9 +240,9 @@ local function drift()
     if math.random() < dr then
       local ch, a = Cd.working[i], Cd.anchor[i]
       if math.random() < gr and a then
-        ch.d, ch.acc, ch.q = a.d, a.acc, a.q
+        ch.d, ch.acc, ch.q, ch.tr = a.d, a.acc, a.q, a.tr
       else
-        ch.d, ch.acc, ch.q = markov_step(Cd.working[i - 1].d), 0, 1
+        ch.d, ch.acc, ch.q, ch.tr = markov_step(Cd.working[i - 1].d), 0, 1, 0
       end
     end
   end
@@ -316,7 +328,7 @@ local function out_chords(list)
   local out = {}
   for i, ch in ipairs(list) do
     out[i] = {d = ch.d, len = ch.len, acc = ch.acc ~= 0 and ch.acc or nil,
-              q = ch.q ~= 1 and H.QUALITIES[ch.q][1] or nil}
+              q = ch.q ~= 1 and H.QUALITIES[ch.q][1] or nil, tr = ch.tr ~= 0 and ch.tr or nil}
   end
   return out
 end
@@ -336,7 +348,8 @@ function Cd.import(c)
       else
         local q = type(ch.q) == "string" and H.quality_index(ch.q) or 1
         out[i] = chord(ch.d, util.clamp(ch.len or 1, 1, Cd.MAX_LEN),
-                       util.clamp(ch.acc or 0, -1, 1), q)
+                       util.clamp(ch.acc or 0, -1, 1), q,
+                       util.clamp(ch.tr or 0, -Cd.MAX_TR, Cd.MAX_TR))
       end
     end
     return out

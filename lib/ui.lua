@@ -106,6 +106,8 @@ local function width(s, scale)
   return #clean(s) * 4 * scale - scale
 end
 
+local function signed(v) return v > 0 and ("+" .. v) or tostring(v) end
+
 local function draw_text(x, y, s, lvl, scale)
   s = clean(s)
   scale = scale or 1
@@ -289,6 +291,7 @@ local function header_main()
   if not header_message() then
     local H, Cd = D.H, D.Cd
     local label = H.chord_label(H.chord)
+    if H.chord.tr ~= 0 then label = label .. " " .. signed(H.chord.tr) end
     local w = width(label)
     local pending = Cd.pending_next or Cd.pending_home
     if now() < chord_flash_until then
@@ -492,6 +495,11 @@ local function param_list(page, rows, y, n)
       local ci = tonumber(id:sub(6))
       txt(2, ry, "CHORD " .. ci .. " QUAL", on and 15 or 5)
       txt(62, ry, D.H.quality_label(D.Cd.working[ci].q), on and 15 or 9)
+    elseif id:match("^htr") then
+      local ci = tonumber(id:sub(4))
+      local ch = D.Cd.working[ci]
+      txt(2, ry, "CHORD " .. ci .. " TRANSP", on and 15 or 5)
+      txt(62, ry, ch.tr == 0 and "0" or (signed(ch.tr) .. "  " .. D.H.transposed_label(ch)), on and 15 or 9)
     elseif id:match("^hlen") then
       local ci = tonumber(id:sub(5))
       local len = D.Cd.working[ci].len
@@ -522,7 +530,7 @@ local function param_list(page, rows, y, n)
 end
 
 local TRACK_ROWS = {
-  "type", "voices", "len", "div", "range", "base", "tension", "fixgate", "gate", "gatemin", "gatemax",
+  "type", "voices", "len", "div", "range", "base", "tension", "follow", "fixgate", "gate", "gatemin", "gatemax",
   "velon", "vel", "velspread", "legato", "legprob", "drift", "gravity", "motif",
   "restart", "port", "ch",
 }
@@ -556,8 +564,8 @@ local function track_rows()
   return rows
 end
 
--- harmony page: four stops per chord (hchordN = degree, haccN = accidental,
--- hqualN = quality, hlenN = length),
+-- harmony page: five stops per chord (hchordN = degree, haccN = accidental,
+-- hqualN = quality, htrN = transpose, hlenN = length),
 -- then params. rebuilt when the chord count changes; the selection follows
 -- the item it was on
 local HARMONY_PARAMS = {"harmony_slot", "chords", "progression", "reroll_progression",
@@ -573,6 +581,7 @@ local function harmony_rows()
     h_rows[#h_rows + 1] = "hchord" .. i
     h_rows[#h_rows + 1] = "hacc" .. i
     h_rows[#h_rows + 1] = "hqual" .. i
+    h_rows[#h_rows + 1] = "htr" .. i
     h_rows[#h_rows + 1] = "hlen" .. i
   end
   for _, id in ipairs(HARMONY_PARAMS) do h_rows[#h_rows + 1] = id end
@@ -692,9 +701,12 @@ local function page_harmony()
   for i, ch in ipairs(Cd.working) do
     local w = minw + math.floor(extra * ch.len / total)
     local rn, rn_fig = H.numeral(ch)
-    local label = width(rn_fig) <= w - 2 and rn_fig or rn
+    local label = rn
+    if ch.tr ~= 0 and width(rn_fig .. signed(ch.tr)) <= w - 2 then label = rn_fig .. signed(ch.tr)
+    elseif width(rn_fig) <= w - 2 then label = rn_fig end
     local a = Cd.anchor[i]
-    local changed = not a or a.d ~= ch.d or a.acc ~= ch.acc or a.q ~= ch.q or a.len ~= ch.len
+    local changed = not a or a.d ~= ch.d or a.acc ~= ch.acc or a.q ~= ch.q or a.tr ~= ch.tr
+                    or a.len ~= ch.len
     if i == Cd.idx then
       local flash = now() < chord_flash_until
       rect(x, y, w, 13, flash and 8 or 15)
@@ -716,8 +728,9 @@ local function page_harmony()
   end
 
   -- keyboard: bright = chord tones, dim = scale
-  local chord = H.pcs(3, true)
-  local scale = H.pcs(4, false)
+  -- (as transposed: what tracks that follow transpose play)
+  local chord = H.pcs(3, true, true)
+  local scale = H.pcs(4, false, true)
   local function lvl_of(pc, white)
     if chord[pc] then return 13 end
     if scale[pc] then return 5 end
@@ -937,6 +950,10 @@ function UI.enc(n, d)
       elseif id:match("^hqual") then
         local ci = tonumber(id:sub(6))
         D.Cd.set_quality(ci, D.Cd.working[ci].q + d)
+        return
+      elseif id:match("^htr") then
+        local ci = tonumber(id:sub(4))
+        D.Cd.set_tr(ci, D.Cd.working[ci].tr + d)
         return
       elseif id:match("^hlen") then
         local ci = tonumber(id:sub(5))
