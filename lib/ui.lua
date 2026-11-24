@@ -522,7 +522,7 @@ local function param_list(page, rows, y, n)
 end
 
 local TRACK_ROWS = {
-  "type", "voices", "len", "div", "range", "base", "tension", "gate", "fixgate",
+  "type", "voices", "len", "div", "range", "base", "tension", "fixgate", "gate", "gatemin", "gatemax",
   "velon", "vel", "velspread", "legato", "legprob", "drift", "gravity", "motif",
   "restart", "port", "ch",
 }

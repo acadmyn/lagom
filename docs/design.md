@@ -40,9 +40,9 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - **Per slot**: each lane's mode, hits and rotate are stored with the slot (like length and division), so slots can hold different euclid patterns. Slots saved before this took the lane settings current at the time. Note, role, max, from and to stay per-track params.
 - **poly**: 2–8 independent melodic lines on the track's channel (set the synth part to poly). Each voice has its own pitch, velocity and gate seeds, its own random rhythm ranking, legato flags and motif, and uses the whole range (voices may cross or meet). Voices share length, division, range, tension and the MIDImix knobs. The track fader brings voices in one by one: voice 1 follows the fader, and voice n starts at (n−1)/voices of the travel, so every voice is at full density only at the top. On screen, the track page draws one mark per voice at its pitch; the main strip shows the lowest-numbered voice that plays.
 - **feel**:
-  - `fixed gate` on/off: off = random length per step, on = gate %.
+  - `fixed gate` on/off: on = every note lasts `gate`; off = each step's gate seed picks a length between `gate min` and `gate max` (defaults 0.1 and 1 step). All three are in steps (0.05–8, shown as `0.5 st`), stored per slot, and may exceed one step, so notes can ring over the following ones. The track page shows `gate` or `gate min`/`gate max`, whichever applies.
   - `velocity` on/off: off = fixed `vel`, on = `vel` ± `vel spread`.
-  - `legato` off / random / all. `random` sets a legato flag per step at roll time, with probability `legato prob` (default 25%); the flag is saved with the slot. Legato only ties a note into the **directly following step**, and only if that step plays: its note-off is sent just after the next step's note-on. If the next step is silent, the note keeps its normal gate.
+  - `legato` off / random / all. `random` sets a legato flag per step at roll time, with probability `legato prob` (default 25%); the flag is saved with the slot. Legato ties a note into the **next step that plays**, across any rests: its note-off is sent just after that step's note-on (or later, if its own gate is longer). If nothing else in the loop plays, the note keeps its normal gate.
 - **shift left / right** (params, and the `shift` row on the track page with E3) rotates the first `length` steps of every lane by one; ranks move with their steps, so the motif and density order follow. Instant; consecutive shifts share one undo entry.
 - **move slot earlier / later** (params, and the `move slot` row on the track page with E3) swaps the current slot with its neighbour, so repeated moves reorder slots like dragging an item in a list (8 → 2 pushes 2–7 up by one). The slot keeps playing, nothing is overwritten, and scenes follow the moved music.
 - **copy to slot** (params `copy to slot` + `copy slot`, and the `copy to` row on the track page: E3 picks the target, K3 copies) duplicates the current slot (working copy, anchor and shape) into the target. Asks before overwriting a slot that has content.
@@ -66,7 +66,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 | Master fader | CC 62 | global density (bipolar) |
 | Knobs, top row | CC 16 20 24 28 46 50 54 58 | range (alternate layer: drift) |
 | Knobs, middle row | CC 17 21 25 29 47 51 55 59 | division (alternate layer: gravity) |
-| Knobs, bottom row | CC 18 22 26 30 48 52 56 60 | length (alternate layer: gate) |
+| Knobs, bottom row | CC 18 22 26 30 48 52 56 60 | length (alternate layer: gate, 5%–8 steps, squared so the first third of the travel covers up to 1 step) |
 | Mute 1–8 | notes 1 4 7 10 13 16 19 22 (LED) | mute toggle, instant |
 | Solo held + Mute | notes 2 5 8 … 23 | next slot (lands on next bar) |
 | Rec arm 1–8 | notes 3 6 9 … 24 (LED) | tap = re-roll (next bar), hold ≥ 0.6 s = **save** |
@@ -123,7 +123,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 Every performance control is a norns param, so it can be MIDI-mapped.
 - **Per track**:
   - perform: density, mute, reroll, save, revert, undo, slot, slot next/prev
-  - shape: length, division, range, drift, gravity, gate
+  - shape: length, division, range, drift, gravity, gate, gate min, gate max
   - setup: type, voices, port, channel, base note, tension, motif size, restart
   - feel: fixed gate, velocity, vel, vel spread, legato, legato prob
   - drum lanes: note, role, mode (rank/euclid), hits, rotate, max, fader from/to per lane

@@ -42,7 +42,8 @@ local LAYERS = {
   {
     {"drift", "DRIFT", pct},
     {"gravity", "GRAVITY", pct},
-    {"gate", "GATE", function(v) return util.round(5 + v / 127 * 95) end},
+    -- 5% .. 8 steps, squared so the first third of the travel covers 0..1 step
+    {"gate", "GATE", function(v) return util.round(5 + (v / 127) ^ 2 * 795) end},
   },
 }
 

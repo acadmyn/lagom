@@ -48,6 +48,8 @@ local redraw_coro
 local function show(msg) UI.message(msg) end
 
 local function fmt_pct(p) return p:get() .. "%" end
+-- gates are stored as % of a step and shown in steps
+local function fmt_steps(p) return string.format("%g", p:get() / 100) .. " st" end
 
 local function fmt_range(p)
   local v = p:get()
@@ -137,6 +139,10 @@ local function update_visibility(i)
     if on then params:show(pre .. id) else params:hide(pre .. id) end
   end
   vis("voices", ty ~= 1)
+  local fixed = params:get(pre .. "fixgate") == 1
+  vis("gate", fixed)
+  vis("gatemin", not fixed)
+  vis("gatemax", not fixed)
   for _, id in ipairs(PITCH_PARAMS) do vis(id, not drums) end
   vis("learn_all", drums)
   for l = 1, 8 do
@@ -233,7 +239,9 @@ local function add_track_params(names)
     params:add_number(pre .. "len", "length", 1, K.MAX_STEPS, 16)
     params:add_option(pre .. "div", "division", K.DIV_NAMES, K.DIV_DEFAULT)
     params:add_number(pre .. "range", "range", 1, K.MAX_RANGE, tpl[4], fmt_range)
-    params:add_number(pre .. "gate", "gate", 5, 100, 50, fmt_pct)
+    params:add_number(pre .. "gate", "gate", 5, 800, 50, fmt_steps)
+    params:add_number(pre .. "gatemin", "gate min", 5, 800, 10, fmt_steps)
+    params:add_number(pre .. "gatemax", "gate max", 5, 800, 100, fmt_steps)
     params:add_number(pre .. "drift", "drift", 0, 100, 0, fmt_pct)
     params:add_number(pre .. "gravity", "gravity", 0, 100, 50, fmt_pct)
     for _, k in ipairs(Track.SHAPE) do params:set_action(pre .. k, dirty) end
@@ -254,6 +262,7 @@ local function add_track_params(names)
     params:add_number(pre .. "motif", "motif size", 0, 8, 4)
     -- feel
     params:add_binary(pre .. "fixgate", "fixed gate", "toggle", 1)
+    params:set_action(pre .. "fixgate", function() update_visibility(i) end)
     params:add_binary(pre .. "velon", "velocity", "toggle", 0)
     params:add_number(pre .. "vel", "vel", 1, 127, 100)
     params:add_number(pre .. "velspread", "vel spread", 0, 64, 20)
