@@ -1,5 +1,5 @@
 -- the conductor: 16 progression slots. each slot is a loop of chords
--- ({d = scale degree, len = bars}) with a working copy (plays, edited, drifts)
+-- ({d = scale degree, acc = -1/0/1, q = quality index, len = bars}) with a working copy (plays, edited, drifts)
 -- and an anchor (what was saved). drift/gravity mutate the working copy once
 -- per pass through the loop. slot changes land on the next bar.
 local Cd = {
@@ -85,16 +85,20 @@ local function markov_chain(n)
   return best
 end
 
+local function chord(d, len, acc, q) return {d = d, acc = acc or 0, q = q or 1, len = len} end
+
 local function copy(t)
   local c = {}
-  for i, ch in ipairs(t) do c[i] = {d = ch.d, len = ch.len} end
+  for i, ch in ipairs(t) do c[i] = chord(ch.d, ch.len, ch.acc, ch.q) end
   return c
 end
+
+local function same(a, b) return a.d == b.d and a.acc == b.acc and a.q == b.q end
 
 local function equal(a, b)
   if #a ~= #b then return false end
   for i, ch in ipairs(a) do
-    if b[i].d ~= ch.d or b[i].len ~= ch.len then return false end
+    if not same(b[i], ch) or b[i].len ~= ch.len then return false end
   end
   return true
 end
@@ -114,7 +118,7 @@ function Cd.generate(n)
     for i, d in ipairs(Cd.PRESETS[m - 2][2]) do degs[i] = wrap(d) end
   end
   local len, c = default_len(), {}
-  for i, d in ipairs(degs) do c[i] = {d = d, len = len} end
+  for i, d in ipairs(degs) do c[i] = chord(d, len) end
   return c
 end
 
@@ -141,7 +145,7 @@ function Cd.init(harmony)
   new_slot(1)
   Cd.idx = 1
   bind(1)
-  H.set_degree(Cd.working[1].d)
+  H.set_chord(Cd.working[1])
 end
 
 function Cd.current() return Cd.working[Cd.idx] end
@@ -152,14 +156,28 @@ function Cd.reroll()
   local c = Cd.generate(#Cd.working)
   Cd.slots[Cd.slot].work = c
   bind(Cd.slot)
-  H.set_degree(Cd.working[Cd.idx].d)
+  H.set_chord(Cd.working[Cd.idx])
 end
 
 function Cd.set_degree(i, d)
   local ch = Cd.working[i]
   if not ch then return end
   ch.d = wrap(d)
-  if i == Cd.idx then H.set_degree(ch.d) end
+  if i == Cd.idx then H.set_chord(ch) end
+end
+
+function Cd.set_acc(i, a)
+  local ch = Cd.working[i]
+  if not ch then return end
+  ch.acc = util.clamp(a, -1, 1)
+  if i == Cd.idx then H.set_chord(ch) end
+end
+
+function Cd.set_quality(i, q)
+  local ch = Cd.working[i]
+  if not ch then return end
+  ch.q = util.clamp(q, 1, #H.QUALITIES)
+  if i == Cd.idx then H.set_chord(ch) end
 end
 
 function Cd.set_len(i, len)
@@ -173,10 +191,14 @@ function Cd.set_count(n)
   local w = Cd.working
   while #w < n do
     local last = w[#w]
-    w[#w + 1] = {d = Cd.mode() == 2 and markov_step(last.d) or last.d, len = default_len()}
+    if Cd.mode() == 2 then
+      w[#w + 1] = chord(markov_step(last.d), default_len())
+    else
+      w[#w + 1] = chord(last.d, default_len(), last.acc, last.q)
+    end
   end
   while #w > n do w[#w] = nil end
-  if Cd.idx > #w then Cd.idx = 1; H.set_degree(w[1].d) end
+  if Cd.idx > #w then Cd.idx = 1; H.set_chord(w[1]) end
   params:set("chords", #w, true)
 end
 
@@ -194,8 +216,9 @@ function Cd.unsaved() return Cd.slot_unsaved(Cd.slot) end
 
 function Cd.target_slot() return Cd.pending_slot or Cd.slot end
 
--- one pass of drift: each chord after the first may mutate; a mutation
--- snaps back to the anchor with probability `gravity`. lengths stay.
+-- one pass of drift: each chord after the first may mutate (to a plain
+-- diatonic chord); a mutation snaps back to the anchor chord with probability
+-- `gravity`. lengths stay.
 local function drift()
   if Cd.mode() == 1 then return end
   local dr = params:get("harmony_drift") / 100
@@ -203,10 +226,11 @@ local function drift()
   if dr <= 0 then return end
   for i = 2, #Cd.working do
     if math.random() < dr then
-      if math.random() < gr and Cd.anchor[i] then
-        Cd.working[i].d = Cd.anchor[i].d
+      local ch, a = Cd.working[i], Cd.anchor[i]
+      if math.random() < gr and a then
+        ch.d, ch.acc, ch.q = a.d, a.acc, a.q
       else
-        Cd.working[i].d = markov_step(Cd.working[i - 1].d)
+        ch.d, ch.acc, ch.q = markov_step(Cd.working[i - 1].d), 0, 1
       end
     end
   end
@@ -219,7 +243,7 @@ local function go(idx)
   end
   Cd.idx = idx
   Cd.bars = 0
-  H.set_degree(Cd.working[idx].d)
+  H.set_chord(Cd.working[idx])
   if Cd.on_change then Cd.on_change(idx) end
 end
 
@@ -254,7 +278,7 @@ function Cd.start()
   Cd.bars = 0
   Cd.idx = 1
   Cd.pending_next = false
-  H.set_degree(Cd.working[1].d)
+  H.set_chord(Cd.working[1])
 end
 
 -- called on every bar line after the first; `forced` = only handle requests
@@ -287,9 +311,19 @@ end
 
 -- persistence ------------------------------------------------------------------
 
+-- chords are saved with the quality's name (acc/q left out when plain)
+local function out_chords(list)
+  local out = {}
+  for i, ch in ipairs(list) do
+    out[i] = {d = ch.d, len = ch.len, acc = ch.acc ~= 0 and ch.acc or nil,
+              q = ch.q ~= 1 and H.QUALITIES[ch.q][1] or nil}
+  end
+  return out
+end
+
 function Cd.export()
   local slots = {}
-  for n, sl in pairs(Cd.slots) do slots[n] = {work = sl.work, anchor = sl.anchor} end
+  for n, sl in pairs(Cd.slots) do slots[n] = {work = out_chords(sl.work), anchor = out_chords(sl.anchor)} end
   return {slot = Cd.slot, idx = Cd.idx, slots = slots}
 end
 
@@ -298,8 +332,12 @@ function Cd.import(c)
   local function chords(list)
     local out = {}
     for i, ch in ipairs(list or {}) do
-      if type(ch) == "number" then out[i] = {d = ch, len = default_len()}
-      else out[i] = {d = ch.d, len = util.clamp(ch.len or 1, 1, Cd.MAX_LEN)} end
+      if type(ch) == "number" then out[i] = chord(ch, default_len())
+      else
+        local q = type(ch.q) == "string" and H.quality_index(ch.q) or 1
+        out[i] = chord(ch.d, util.clamp(ch.len or 1, 1, Cd.MAX_LEN),
+                       util.clamp(ch.acc or 0, -1, 1), q)
+      end
     end
     return out
   end
@@ -322,7 +360,7 @@ function Cd.import(c)
   Cd.pending_next, Cd.pending_home, Cd.pending_slot = false, false, nil
   Cd.idx = math.max(1, c.idx or 1)
   bind(n)
-  H.set_degree(Cd.working[Cd.idx].d)
+  H.set_chord(Cd.working[Cd.idx])
 end
 
 return Cd

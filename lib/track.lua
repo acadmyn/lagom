@@ -275,14 +275,15 @@ function Track:chord_notes(n)
       v[i] = nearest(pool, old, taken)
       taken[v[i]] = true
     end
-    -- chord tones in importance order (root, 3rd, 5th, 7th, 9th) that exist
-    -- in the pool, as many as there are voices
-    local H = Track.H
-    local in_pool, want = {}, {}
+    -- chord tones in importance order that exist in the pool, as many as
+    -- there are voices
+    local in_pool, used, want = {}, {}, {}
     for _, p in ipairs(pool) do in_pool[p % 12] = true end
-    for j = 0, 4 do
-      local pc = H.chord_tone(H.degree, j)
-      if in_pool[pc] and #want < n then want[#want + 1] = pc end
+    for _, pc in ipairs(Track.H.voice_order()) do
+      if in_pool[pc] and not used[pc] and #want < n then
+        want[#want + 1] = pc
+        used[pc] = true
+      end
     end
     for _, pc in ipairs(want) do
       local count = {}
