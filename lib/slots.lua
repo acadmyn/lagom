@@ -7,7 +7,7 @@ local UNDO_MAX = 16
 local DRIFT_COALESCE = 4   -- passes: drift snapshots closer than this merge
 
 -- shape params stored with every slot
-local SHAPE = {"len", "div", "range", "drift", "gravity", "gate"}
+local SHAPE = {"len", "div", "range", "drift", "gravity", "gate", "gatemin", "gatemax"}
 -- drum lane rhythm (euclid patterns) is stored with every slot too
 local LANE_SHAPE = {}
 for l = 1, 8 do

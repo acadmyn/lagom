@@ -324,9 +324,17 @@ function Track:velocity(st)
   return util.clamp(vel, 1, 127)
 end
 
--- note length in ticks for one step
+-- note length in ticks for one step: `gate`, or with fixed gate off somewhere
+-- between `gate min` and `gate max` (% of a step, may exceed one step)
 function Track:gate_ticks(st, div)
-  local pct = self:p("fixgate") == 1 and self:p("gate") or (10 + st.g * 90)
+  local pct
+  if self:p("fixgate") == 1 then
+    pct = self:p("gate")
+  else
+    local lo, hi = self:p("gatemin"), self:p("gatemax")
+    if hi < lo then lo, hi = hi, lo end
+    pct = lo + st.g * (hi - lo)
+  end
   return math.max(1, math.floor(div * pct / 100 + 0.5))
 end
 
@@ -335,9 +343,15 @@ function Track:is_legato(st)
   return mode == 3 or (mode == 2 and st.leg)
 end
 
--- legato only ties into the directly following step, and only if it plays
-function Track:next_plays(len, density, l)
-  return self:is_audible((self.pos % len) + 1, len, density, l)
+-- legato ties into the next step that plays, across any rests: the note
+-- lasts until just after that step's note-on (or longer, if its gate is)
+function Track:legato_gate(gate, div, len, density, l)
+  for k = 1, len - 1 do
+    if self:is_audible(((self.pos + k - 1) % len) + 1, len, density, l) then
+      return math.max(gate, k * div + 1)
+    end
+  end
+  return gate
 end
 
 -- playback ------------------------------------------------------------------
@@ -380,7 +394,7 @@ function Track:step(t, seq, rel)
       if self:is_audible(self.pos, len, ld, l) then
         local st = self.lanes[l].steps[self.pos]
         local gate = self:gate_ticks(st, div)
-        if self:is_legato(st) and self:next_plays(len, ld, l) then gate = div + 1 end
+        if self:is_legato(st) then gate = self:legato_gate(gate, div, len, ld, l) end
         local note = pool[math.min(#pool, math.floor(st.p * #pool) + 1)]
         seq.note(t, port, ch, note, self:velocity(st), gate, self.id)
         if l == 1 then self.last_note = note end
@@ -393,10 +407,7 @@ function Track:step(t, seq, rel)
   if not self:is_audible(self.pos, len, dens) then return end
   local st = self.steps[self.pos]
   local gate = self:gate_ticks(st, div)
-  if self:is_legato(st) and self:next_plays(len, dens) then
-    -- hold until just after the next step's note-on
-    gate = div + 1
-  end
+  if self:is_legato(st) then gate = self:legato_gate(gate, div, len, dens) end
   local vel = self:velocity(st)
 
   if self:p("type") == CHORD then
