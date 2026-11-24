@@ -222,15 +222,18 @@ end
 -- pitch ---------------------------------------------------------------------
 
 -- notes from base note up to base + range whose pitch class the tension
--- allows on this kind of beat (cached per harmony version)
+-- allows on this kind of beat (cached per harmony version). a track that
+-- follows transpose uses the transposed chord, its range moved with it
 function Track:pool(strong)
   local H = Track.H
-  local base, range, tension = self:p("base"), self:p("range"), self:p("tension")
-  local k = table.concat({base, range, tension, strong and 1 or 0, H.version}, ",")
+  local follow = self:p("follow") == 1
+  local base = util.clamp(self:p("base") + H.shift(follow), 0, 127)
+  local range, tension = self:p("range"), self:p("tension")
+  local k = table.concat({base, range, tension, strong and 1 or 0, follow and 1 or 0, H.version}, ",")
   self.pools = self.pools or {}
   local c = self.pools[strong and 1 or 2]
   if c and c.key == k then return c.notes, k end
-  local pcs = H.pcs(tension, strong)
+  local pcs = H.pcs(tension, strong, follow)
   local notes = {}
   for n = base, math.min(127, base + range) do
     if pcs[n % 12] then notes[#notes + 1] = n end
@@ -279,7 +282,7 @@ function Track:chord_notes(n)
     -- there are voices
     local in_pool, used, want = {}, {}, {}
     for _, p in ipairs(pool) do in_pool[p % 12] = true end
-    for _, pc in ipairs(Track.H.voice_order()) do
+    for _, pc in ipairs(Track.H.voice_order(self:p("follow") == 1)) do
       if in_pool[pc] and not used[pc] and #want < n then
         want[#want + 1] = pc
         used[pc] = true
