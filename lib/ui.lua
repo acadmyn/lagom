@@ -78,7 +78,7 @@ local GLYPHS = {
   [","] = "000000000010100", ["'"] = "010010000000000",
   -- lowercase only where case carries meaning (minor/dim chords)
   i = "010000010010010", v = "000000101101010", m = "000000111111101",
-  o = "000000010101010", d = "001001011101011",
+  o = "000000010101010", d = "001001011101011", b = "100100110101110",
 }
 -- glyph -> list of {dx, dy} lit pixels
 local GLYPH_PX = {}
@@ -288,7 +288,7 @@ end
 local function header_main()
   if not header_message() then
     local H, Cd = D.H, D.Cd
-    local label = H.chord_label(H.degree)
+    local label = H.chord_label(H.chord)
     local w = width(label)
     local pending = Cd.pending_next or Cd.pending_home
     if now() < chord_flash_until then
@@ -483,7 +483,15 @@ local function param_list(page, rows, y, n)
     elseif id:match("^hchord") then
       local ci = tonumber(id:sub(7))
       txt(2, ry, "CHORD " .. ci, on and 15 or 5)
-      txt(62, ry, D.H.chord_label(D.Cd.working[ci].d), on and 15 or 9)
+      txt(62, ry, D.H.chord_label(D.Cd.working[ci]), on and 15 or 9)
+    elseif id:match("^hacc") then
+      local ci = tonumber(id:sub(5))
+      txt(2, ry, "CHORD " .. ci .. " ACC", on and 15 or 5)
+      txt(62, ry, ({[-1] = "FLAT", [0] = "NATURAL", [1] = "SHARP"})[D.Cd.working[ci].acc], on and 15 or 9)
+    elseif id:match("^hqual") then
+      local ci = tonumber(id:sub(6))
+      txt(2, ry, "CHORD " .. ci .. " QUAL", on and 15 or 5)
+      txt(62, ry, D.H.quality_label(D.Cd.working[ci].q), on and 15 or 9)
     elseif id:match("^hlen") then
       local ci = tonumber(id:sub(5))
       local len = D.Cd.working[ci].len
@@ -548,7 +556,8 @@ local function track_rows()
   return rows
 end
 
--- harmony page: two stops per chord (hchordN = degree, hlenN = length),
+-- harmony page: four stops per chord (hchordN = degree, haccN = accidental,
+-- hqualN = quality, hlenN = length),
 -- then params. rebuilt when the chord count changes; the selection follows
 -- the item it was on
 local HARMONY_PARAMS = {"harmony_slot", "chords", "progression", "reroll_progression",
@@ -562,6 +571,8 @@ local function harmony_rows()
   h_rows = {}
   for i = 1, n do
     h_rows[#h_rows + 1] = "hchord" .. i
+    h_rows[#h_rows + 1] = "hacc" .. i
+    h_rows[#h_rows + 1] = "hqual" .. i
     h_rows[#h_rows + 1] = "hlen" .. i
   end
   for _, id in ipairs(HARMONY_PARAMS) do h_rows[#h_rows + 1] = id end
@@ -668,7 +679,7 @@ local function page_harmony()
   -- dots under a box = its bars; the selected chord gets a bright frame
   local rows = harmony_rows()
   local sel = rows[UI.sel_param[3]] or ""
-  local sel_i = tonumber(sel:match("^hchord(%d)") or sel:match("^hlen(%d)") or "")
+  local sel_i = tonumber(sel:match("^h%a+(%d)$") or "")
   local sel_len = sel:match("^hlen") ~= nil
   local n = #Cd.working
   local total = 0
@@ -680,9 +691,10 @@ local function page_harmony()
   local x, y = 1, 11
   for i, ch in ipairs(Cd.working) do
     local w = minw + math.floor(extra * ch.len / total)
-    local label = H.chord_label(ch.d):match("^(%S+)")
+    local rn, rn_fig = H.numeral(ch)
+    local label = width(rn_fig) <= w - 2 and rn_fig or rn
     local a = Cd.anchor[i]
-    local changed = not a or a.d ~= ch.d or a.len ~= ch.len
+    local changed = not a or a.d ~= ch.d or a.acc ~= ch.acc or a.q ~= ch.q or a.len ~= ch.len
     if i == Cd.idx then
       local flash = now() < chord_flash_until
       rect(x, y, w, 13, flash and 8 or 15)
@@ -917,6 +929,14 @@ function UI.enc(n, d)
       elseif id:match("^hchord") then
         local ci = tonumber(id:sub(7))
         D.Cd.set_degree(ci, D.Cd.working[ci].d + d)
+        return
+      elseif id:match("^hacc") then
+        local ci = tonumber(id:sub(5))
+        D.Cd.set_acc(ci, D.Cd.working[ci].acc + d)
+        return
+      elseif id:match("^hqual") then
+        local ci = tonumber(id:sub(6))
+        D.Cd.set_quality(ci, D.Cd.working[ci].q + d)
         return
       elseif id:match("^hlen") then
         local ci = tonumber(id:sub(5))
