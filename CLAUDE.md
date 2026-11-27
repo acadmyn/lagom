@@ -44,6 +44,7 @@ lagom is a norns (Lua) generative MIDI sequencer: 8 tracks that stay in harmony,
 - `lib/midimix.lua`, `lib/harmony.lua`, `lib/conductor.lua`, `lib/learn.lua` (drum note learn).
 - `lib/store.lua`: sets (`<data>/lagom-NN.set` next to each pset), autosave (`<data>/autosave.set`, includes lagom's params, restored at boot), scenes. Background saves yield between slots so the tick loop never stalls (>6 ms).
 - `lib/confirm.lua`: K3/K2 dialogs.
+- `lib/drums.lua` (#37): slagverk (`../slagverk`, acadmyn/slagverk) as a library. `Drums.load()` at the top level of `lagom.lua` includes `slagverk/lib/slagverk`, checks its `API` and plugin, and sets `engine.name = "Slagverk"`; otherwise lagom stays MIDI-only. Port option 17 = `norns`; `Drums.sync(i)` makes/frees track i's kit (engine kit id = track number) when type or port change; `Track:step` sends drum lanes to `Drums.hit`. Kits are in the set (`kits` in `store.lua`); the `t<n>_kit` param only loads presets (not saved). Never ship slagverk's engine or classes inside lagom. Voice editing (voice page, MIDImix) comes with slagverk#5.
 - Fields set on `params` itself (e.g. wrapping `params.read`) survive `params:clear()` and stack across reloads; `S.unhook()` removes them in `cleanup()`.
 - `lib/ui.lua`: pages, overlays, flashes. Draws into a Lua framebuffer (built-in 3×5 font) and sends it with one `screen.poke` per frame.
 - **Timing rules (measured in step 7):**

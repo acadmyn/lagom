@@ -194,7 +194,11 @@ local function ports_changed(changed)
 end
 
 -- the track's port has no device
-local function port_down(t) return not D.Out.up[t:p("port")] end
+local function port_down(t)
+  local p = t:p("port")
+  if p == D.Drums.PORT then return not D.Drums.ready() end
+  return not D.Out.up[p]
+end
 
 function UI.saved(title, sub)
   saved_title, saved_sub, saved_until = title, sub, now() + 0.8
@@ -617,7 +621,8 @@ local function page_track()
   local t = D.tracks[i]
   local ty = t:p("type")
   header_page("T" .. i, enabled(i) and
-    (string.upper(D.Track.TYPES[ty]) .. "  P" .. t:p("port") .. " CH" .. t:p("ch")) or "OFF")
+    (string.upper(D.Track.TYPES[ty]) .. (t:p("port") == D.Drums.PORT and "  NORNS" or
+      ("  P" .. t:p("port") .. " CH" .. t:p("ch")))) or "OFF")
   txt_r(121, 1, t:target_slot() .. (t:unsaved() and "*" or " "),
         (t.pending and blink()) and 2 or 11)
 

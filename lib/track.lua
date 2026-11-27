@@ -377,6 +377,17 @@ function Track:step(t, seq, rel)
   local div = K.DIV_TICKS[self:p("div")]
   local port, ch = self:p("port"), self:p("ch")
 
+  -- the norns drum machine (port 17, lib/drums.lua): drum tracks only
+  if port == self.Drums.PORT then
+    if not self:is_drums() then return end
+    for l = 1, self:num_lanes() do
+      if self:drum_plays(l, self.pos, len, dens) then
+        self.Drums.hit(self.id, l, self:velocity(self.lanes[l].steps[self.pos]))
+      end
+    end
+    return
+  end
+
   if self:is_drums() then
     for l = 1, self:num_lanes() do
       if self:drum_plays(l, self.pos, len, dens) then

@@ -40,6 +40,9 @@ local Learn = include("lib/learn")
 local Confirm = include("lib/confirm")
 local S = include("lib/store")
 local UI = include("lib/ui")
+local Drums = include("lib/drums")
+-- the norns drum machine, when slagverk is installed (#37)
+if Drums.load() then engine.name = "Slagverk" end
 local Trs = include("lib/trs")
 
 local tracks = {}
@@ -145,6 +148,9 @@ local function update_visibility(i)
   vis("gatemax", not fixed)
   for _, id in ipairs(PITCH_PARAMS) do vis(id, not drums) end
   vis("learn_all", drums)
+  if params.lookup[pre .. "kit"] then
+    vis("kit", drums and params:get(pre .. "port") == Drums.PORT)
+  end
   for l = 1, 8 do
     local eu = params:get(pre .. "lane" .. l .. "_mode") == 2
     vis("lane" .. l .. "_note", drums)
@@ -251,10 +257,26 @@ local function add_track_params(names)
       Seq.flush_track(i)
       t:release_voicing()
       t:rank_all()
+      Drums.sync(i)
       update_visibility(i)
     end))
     params:add_number(pre .. "voices", "voices / lanes", 1, 8, 4)
-    params:add_option(pre .. "port", "port", names, 2)
+    local port_names = {table.unpack(names)}
+    if Drums.available then port_names[Drums.PORT] = Drums.PORT .. ": norns" end
+    params:add_option(pre .. "port", "port", port_names, 2)
+    params:set_action(pre .. "port", function()
+      Seq.flush_track(i)
+      Drums.sync(i)
+      update_visibility(i)
+    end)
+    if Drums.available then
+      params:add_option(pre .. "kit", "kit", Drums.preset_names(), 1)
+      params:set_save(pre .. "kit", false)   -- the kit itself is in the set
+      params:set_action(pre .. "kit", function(v)
+        local name = params:lookup_param(pre .. "kit").options[v]
+        if Drums.load_preset(i, name) then show("KIT " .. string.upper(name)) end
+      end)
+    end
     params:add_number(pre .. "ch", "channel", 1, 16, i)
     params:add_number(pre .. "base", "base note", 0, 127, tpl[3], note_name)
     params:add_option(pre .. "tension", "tension", H.TENSIONS, tpl[2])
@@ -303,6 +325,9 @@ function init()
   Out.init()
   Mix.init(Out, tracks)
   Track.H = H
+  Track.Drums = Drums
+  Drums.init(tracks)
+  Drums.on_change = function() S.due = true end
 
   local names = Out.port_names()
   local first_param = #params.params + 1
@@ -316,7 +341,7 @@ function init()
   Track.on_slot_changed = function() S.due = true end
   Track.on_applied = function(t) UI.track_changed(t.id) end
   Track.on_slots_swapped = function(t, a, b) S.swap_slots(t.id, a, b) end
-  S.init(tracks, Cd, H, Confirm, first_param)
+  S.init(tracks, Cd, H, Confirm, first_param, Drums)
   S.hook_psets()
 
   Cd.init(H)
@@ -374,8 +399,13 @@ function init()
   Out.poll()
   Seq.start()
   S.start()
-  UI.init({tracks = tracks, Out = Out, C = C, H = H, Cd = Cd, Mix = Mix, Learn = Learn,
+  UI.init({tracks = tracks, Out = Out, C = C, H = H, Cd = Cd, Mix = Mix, Learn = Learn, Drums = Drums,
            Confirm = Confirm, S = S, Seq = Seq, Track = Track})
+  if Drums.problem == "restart" then
+    UI.message("SLAGVERK: SYSTEM > RESTART", 4)
+  elseif Drums.problem then
+    UI.message("SLAGVERK: " .. string.upper(Drums.problem), 4)
+  end
 
   redraw_coro = clock.run(function()
     while true do
@@ -384,7 +414,7 @@ function init()
     end
   end)
   -- handle for REPL introspection while developing
-  _lagom = {tracks = tracks, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd, Learn = Learn,
+  _lagom = {tracks = tracks, Drums = Drums, C = C, Seq = Seq, Out = Out, Mix = Mix, H = H, Cd = Cd, Learn = Learn,
             S = S, Confirm = Confirm, UI = UI}
   print("lagom: init ok")
 end

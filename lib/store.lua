@@ -8,7 +8,7 @@ local S = {
   due = false,        -- autosave soon (slot change)
 }
 
-local tracks, Cd, H, Confirm
+local tracks, Cd, H, Confirm, Drums
 local first_param       -- index of lagom's first param in params.params
 local last_written      -- autosave text last written (skip identical writes)
 local SKIP = {play = true}
@@ -176,7 +176,7 @@ local function encode_set(with_params, yield)
   end
   local out = {}
   ser({scenes = S.scenes, params = with_params and params_raw() or nil,
-       conductor = Cd.export()}, out)
+       conductor = Cd.export(), kits = Drums.export()}, out)
   parts[#parts + 1] = "},"
   parts[#parts + 1] = table.concat(out):sub(2)
   parts[#parts + 1] = "\n"
@@ -193,13 +193,14 @@ local function restore(d)
     if d.tracks and d.tracks[i] then t:import(d.tracks[i]) end
   end
   if d.conductor then Cd.import(d.conductor) end
+  if d.kits then Drums.import(d.kits) end
   S.scenes = d.scenes or {}
 end
 
 -- public ----------------------------------------------------------------------
 
-function S.init(trs, conductor, harmony, confirm, first)
-  tracks, Cd, H, Confirm, first_param = trs, conductor, harmony, confirm, first
+function S.init(trs, conductor, harmony, confirm, first, drums)
+  tracks, Cd, H, Confirm, first_param, Drums = trs, conductor, harmony, confirm, first, drums
   util.make_dir(dir())
 end
 
