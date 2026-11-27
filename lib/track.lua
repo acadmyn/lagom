@@ -327,6 +327,13 @@ function Track:velocity(st)
   return util.clamp(vel, 1, 127)
 end
 
+-- a drum lane's velocity: its own fixed value, or the track's (0 = "track")
+function Track:lane_velocity(l, st)
+  local v = self:lane_p(l, "vel")
+  if v > 0 then return v end
+  return self:velocity(st)
+end
+
 -- note length in ticks for one step: `gate`, or with fixed gate off somewhere
 -- between `gate min` and `gate max` (% of a step, may exceed one step)
 function Track:gate_ticks(st, div)
@@ -383,7 +390,7 @@ function Track:step(t, seq, rel)
     for l = 1, self:num_lanes() do
       if self:drum_plays(l, self.pos, len, dens) then
         self.Drums.hit(self.id, self:p("lane" .. l .. "_note"),
-                       self:velocity(self.lanes[l].steps[self.pos]))
+                       self:lane_velocity(l, self.lanes[l].steps[self.pos]))
       end
     end
     return
@@ -393,7 +400,7 @@ function Track:step(t, seq, rel)
     for l = 1, self:num_lanes() do
       if self:drum_plays(l, self.pos, len, dens) then
         local st = self.lanes[l].steps[self.pos]
-        seq.note(t, port, ch, self:p("lane" .. l .. "_note"), self:velocity(st),
+        seq.note(t, port, ch, self:p("lane" .. l .. "_note"), self:lane_velocity(l, st),
                  self:gate_ticks(st, div), self.id)
       end
     end

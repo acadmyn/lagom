@@ -155,6 +155,7 @@ local function update_visibility(i)
     local eu = params:get(pre .. "lane" .. l .. "_mode") == 2
     vis("lane" .. l .. "_note", drums)
     vis("lane" .. l .. "_role", drums)
+    vis("lane" .. l .. "_vel", drums)
     vis("lane" .. l .. "_learn", drums)
     vis("lane" .. l .. "_mode", drums)
     vis("lane" .. l .. "_hits", drums and eu)
@@ -303,6 +304,9 @@ local function add_track_params(names)
           local v = Drums.note_label(i, p:get())
           return v and (s .. " " .. v) or s
         end)
+      -- 0 = follow the track's velocity (vel ± spread), 1-127 = always this
+      params:add_number(pre .. "lane" .. l .. "_vel", "lane " .. l .. " velocity", 0, 127, 0,
+        function(p) return p:get() == 0 and "track" or tostring(p:get()) end)
       params:add_option(pre .. "lane" .. l .. "_role", "lane " .. l .. " role", Track.ROLES,
         Track.DRUM_ROLES[l])
       params:set_action(pre .. "lane" .. l .. "_role", on_change(function(t) t:rank_lane(l) end))
