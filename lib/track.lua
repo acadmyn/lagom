@@ -327,8 +327,14 @@ function Track:velocity(st)
   return util.clamp(vel, 1, 127)
 end
 
--- a drum lane's velocity: its own fixed value, or the track's (0 = "track")
+-- a drum lane's velocity: its own fixed value, or the track's (0 = "track").
+-- on a euclid lane, a playing step with drift's flip flag is one drift added
+-- (a rest on the plain pattern): it plays at the lane's ghost velocity
 function Track:lane_velocity(l, st)
+  if st.x and self:lane_p(l, "mode") == 2 then
+    local g = self:lane_p(l, "ghost")
+    if g > 0 then return g end
+  end
   local v = self:lane_p(l, "vel")
   if v > 0 then return v end
   return self:velocity(st)

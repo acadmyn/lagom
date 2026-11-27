@@ -160,6 +160,7 @@ local function update_visibility(i)
     vis("lane" .. l .. "_mode", drums)
     vis("lane" .. l .. "_hits", drums and eu)
     vis("lane" .. l .. "_rotate", drums and eu)
+    vis("lane" .. l .. "_ghost", drums and eu)
     vis("lane" .. l .. "_max", drums and not eu)
     vis("lane" .. l .. "_from", drums)
     vis("lane" .. l .. "_to", drums)
@@ -307,6 +308,9 @@ local function add_track_params(names)
       -- 0 = follow the track's velocity (vel ± spread), 1-127 = always this
       params:add_number(pre .. "lane" .. l .. "_vel", "lane " .. l .. " velocity", 0, 127, 0,
         function(p) return p:get() == 0 and "track" or tostring(p:get()) end)
+      -- euclid: the velocity of hits drift added (0 = like the pattern's)
+      params:add_number(pre .. "lane" .. l .. "_ghost", "lane " .. l .. " ghost vel", 0, 127, 0,
+        function(p) return p:get() == 0 and "off" or tostring(p:get()) end)
       params:add_option(pre .. "lane" .. l .. "_role", "lane " .. l .. " role", Track.ROLES,
         Track.DRUM_ROLES[l])
       params:set_action(pre .. "lane" .. l .. "_role", on_change(function(t) t:rank_lane(l) end))
