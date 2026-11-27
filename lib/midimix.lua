@@ -10,6 +10,9 @@ local M = {
   -- a move costs no garbage beyond its strings
   touch = {at = -1, track = 1, title = "", value = "", knob = nil,
            frac = 0, knob_frac = 0, lo = "", hi = ""},
+  -- set by lagom.lua: function(row, col, t) -> true when the VOICE page took a
+  -- top/middle knob (t 0-1) for slagverk's voice editing
+  voice_knob = nil,
 }
 
 local Out           -- injected
@@ -109,6 +112,12 @@ end
 
 local function knob(cc, v)
   local i, row = knob_at[cc][1], knob_at[cc][2]
+  if row <= 2 and M.voice_knob and M.voice_knob(row, i, v / 127) then
+    -- the knob left the track's value behind: it picks it up again
+    last_cc[cc] = v
+    for _, layer in ipairs(LAYERS) do caught[tp(i, layer[row][1])] = false end
+    return
+  end
   local k = LAYERS[M.alt and 2 or 1][row]
   local id = tp(i, k[1])
   local map = k[3]

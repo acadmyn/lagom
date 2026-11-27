@@ -66,8 +66,8 @@ The visual proposal with screen mockups is in a private artifact: https://claude
 |---|---|---|
 | Faders 1–8 | CC 19 23 27 31 49 53 57 61 | track density |
 | Master fader | CC 62 | global density (bipolar) |
-| Knobs, top row | CC 16 20 24 28 46 50 54 58 | range (alternate layer: drift) |
-| Knobs, middle row | CC 17 21 25 29 47 51 55 59 | division (alternate layer: gravity) |
+| Knobs, top row | CC 16 20 24 28 46 50 54 58 | range (alternate layer: drift); on the voice page P1–P8 |
+| Knobs, middle row | CC 17 21 25 29 47 51 55 59 | division (alternate layer: gravity); on the voice page knobs 1–5 = Level, Tune, Pan, Choke, Tape |
 | Knobs, bottom row | CC 18 22 26 30 48 52 56 60 | length (alternate layer: gate, 5%–8 steps, squared so the first third of the travel covers up to 1 step) |
 | Mute 1–8 | notes 1 4 7 10 13 16 19 22 (LED) | mute toggle, instant |
 | Solo held + Mute | notes 2 5 8 … 23 | next slot (lands on next bar) |
@@ -102,6 +102,7 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - track: the selected track's step graph (drums: one row per lane), then a param list (E2 select, E3 change, `clear slot` at the end).
   - harmony: the chord editor. Progression boxes, their width following each chord's length (at least 12 px), the current one filled with a bar-progress line under it, each box labelled with its numeral (plus figure and transpose when they fit, e.g. `ii7`, `i+2`), a dot per bar under each box; the header shows key and progression (presets as `P8`; header text is cut before the corner), the slot number top right (`*` = unsaved, blinking = pending). A two-octave keyboard (bright = chord tones, dim = chord scale, both as transposed), then one row. E2 steps through five stops per chord (degree, accidental, quality, transpose: bright frame around the box; length: its bar dots light up), then progression slot, chords, progression, re-roll, chord length, root, scale, harmony drift/gravity. E3 changes the selected item.
   - clock: big tempo, master/slave, playing, beat boxes, clock in/out, then a param list (tempo, mode, ports, beats per bar, controller port, clock out per connected port).
+  - voice (only when slagverk is installed; E1 order main, track, voice, harmony, clock, scenes): slagverk's voice page for the kit of the selected track, or of the first drum track on the norns port. E2 picks a control, E3 changes it, K2 + E2 picks the voice, K2 + E3 the track (among drum tracks on the norns port), K3 plays the selected voice. While this page is shown, the MIDImix top knobs are P1–P8 and the middle knobs 1–5 are Level, Tune, Pan, Choke, Tape of the selected voice (with slagverk's pickup); faders, the bottom row and the buttons keep their track functions. Afterwards the track knobs that were used pick up again.
   - scenes: 8 boxes showing each track's slot as a bar. E2/E3 select, **K3 recall, K2 store** (asks before overwriting).
   - K2 on any page except main and scenes goes back to main (on release, so K2 can be held for a combo).
   - harmony: **K2 + E2** jumps to the same stop of the previous / next chord (from the rows below the chords: to the first chord), as slagverk's K2 + E2 picks the voice (user, 2026-11-28).

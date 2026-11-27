@@ -5,7 +5,7 @@
 -- the kits are saved in the set. without slagverk lagom stays MIDI-only.
 local Drums = {
   PORT = 17,
-  API = 2,            -- the slagverk library API this file is written for (2: voice notes)
+  API = 3,            -- the slagverk library API this file is written for (3: the voice page)
   available = false,  -- slagverk installed, its plugin in place, engine loading
   problem = nil,      -- why not: "restart" (SYSTEM > RESTART) or "old slagverk"
   kits = {},          -- track -> slagverk kit (drum tracks on the norns port)
@@ -15,6 +15,7 @@ local Drums = {
 
 local SV                -- slagverk's library
 local tracks
+local page              -- slagverk's voice page, on the kit of the track shown
 
 -- top level of lagom.lua, before norns loads the engine. true when the
 -- engine should be Slagverk
@@ -92,6 +93,48 @@ function Drums.load_preset(i, name)
     return true
   end
   return false
+end
+
+-- the voice page (lagom's VOICE page): slagverk draws it and edits the kit.
+-- one page, moved to track i's kit; nil when track i has no kit
+function Drums.page(i)
+  local k = Drums.kits[i]
+  if not k then return nil end
+  if not page then page = SV.Page.new(k) elseif page.kit ~= k then page:set_kit(k) end
+  return page
+end
+
+local function edited()
+  if Drums.on_change then Drums.on_change() end
+end
+
+-- E2 picks a control, E3 changes it
+function Drums.page_enc(i, n, d)
+  local p = Drums.page(i)
+  if not p then return end
+  p:enc(n, d)
+  if n == 3 then edited() end
+end
+
+function Drums.page_voice(i, d)
+  local p = Drums.page(i)
+  if p then p:select_delta(d) end
+end
+
+-- a MIDImix knob (row 1 = P1-P8, row 2 = Level, Tune, Pan, Choke, Tape),
+-- t 0-1. true when the page used it
+function Drums.page_knob(i, row, col, t)
+  local p = Drums.page(i)
+  if not p then return false end
+  local used = p:knob(row, col, t)
+  if used then edited() end
+  return used
+end
+
+-- plays the selected voice
+function Drums.page_hit(i)
+  local k = Drums.kits[i]
+  if k then k:trig(k.selected, 1) end
 end
 
 -- the set: one kit per track

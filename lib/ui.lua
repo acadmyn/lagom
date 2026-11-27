@@ -1,5 +1,8 @@
--- screen: pages (main / track / harmony / clock / scenes), overlays, flashes.
+-- screen: pages (main / track / voice / harmony / clock / scenes), overlays, flashes.
 -- E1 page, E2 select, E3 change, K2 back (to main), K3 play/stop or confirm.
+-- voice (only with slagverk): slagverk's voice page for a drum track on the
+-- norns port. E2 control, E3 value, K2+E2 voice, K2+E3 track, K3 hit; the
+-- MIDImix top and middle knobs edit the voice while it's shown.
 local K = include("lib/const")
 
 local UI = {
@@ -12,7 +15,14 @@ local UI = {
 
 local D                 -- deps: tracks, C, H, Cd, Mix, Learn, Confirm, S, Seq, Track
 local VERSION = "V0.7"
-local PAGES = {"MAIN", "TRACK", "HARMONY", "CLOCK", "SCENES"}
+local PAGES = {"MAIN", "TRACK", "HARMONY", "CLOCK", "SCENES", "VOICE"}
+local VOICE = 6
+UI.VOICE = VOICE
+-- E1 order (the voice page sits after the track page; without slagverk it's left out)
+local function page_order()
+  if D.Drums.available then return {1, 2, VOICE, 3, 4, 5} end
+  return {1, 2, 3, 4, 5}
+end
 local GLYPH = {"M", "C", "D", "P"}
 
 local msg, msg_until = nil, 0             -- header message
@@ -828,6 +838,41 @@ end
 
 -- overlays -------------------------------------------------------------------------
 
+-- voice page ------------------------------------------------------------------
+
+-- the track whose kit the voice page shows: the selected track if it plays
+-- slagverk, else the first that does (nil: none)
+function UI.voice_track()
+  if D.Drums.kits[UI.sel] then return UI.sel end
+  for i = 1, K.NUM_TRACKS do
+    if D.Drums.kits[i] then return i end
+  end
+  return nil
+end
+
+-- K2+E3: the next / previous track that plays slagverk
+local function voice_track_step(d)
+  local i = UI.voice_track()
+  if not i then return end
+  for _ = 1, K.NUM_TRACKS do
+    i = (i - 1 + d) % K.NUM_TRACKS + 1
+    if D.Drums.kits[i] then UI.sel = i; return end
+  end
+end
+
+local function page_voice()
+  local i = UI.voice_track()
+  local p = i and D.Drums.page(i)
+  if not p then
+    header_page("VOICE")
+    txt_c(64, 26, "NO DRUM TRACK", 8)
+    txt_c(64, 34, "ON THE NORNS PORT", 4)
+    return
+  end
+  p:draw(FB)
+  header_page("VOICE", "T" .. i)
+end
+
 local function overlay_saved()
   local x, y = box(70, 24)
   big(64, y + 3, "SAVED", 15, "c")
@@ -894,7 +939,7 @@ end
 
 -- public: draw / input -------------------------------------------------------------
 
-local DRAW = {page_main, page_track, page_harmony, page_clock, page_scenes}
+local DRAW = {page_main, page_track, page_harmony, page_clock, page_scenes, page_voice}
 
 function UI.redraw()
   local changed = D.Out.poll()
@@ -952,7 +997,21 @@ function UI.enc(n, d)
     k2_used = true
     harmony_chord_jump(d > 0 and 1 or -1)
   elseif n == 1 then
-    UI.page = util.clamp(UI.page + d, 1, #PAGES)
+    local order, at = page_order(), 1
+    for k, p in ipairs(order) do if p == UI.page then at = k end end
+    UI.page = order[util.clamp(at + d, 1, #order)]
+  elseif UI.page == VOICE then
+    local i = UI.voice_track()
+    if not i then return end
+    if k2_down and n == 2 then
+      k2_used = true
+      D.Drums.page_voice(i, d)
+    elseif k2_down and n == 3 then
+      k2_used = true
+      voice_track_step(d > 0 and 1 or -1)
+    elseif n == 2 or n == 3 then
+      D.Drums.page_enc(i, n, d)
+    end
   elseif UI.page == 1 then
     if n == 2 then
       local dir = d > 0 and 1 or -1
@@ -1028,6 +1087,12 @@ function UI.key(n, z)
       else
         params:set("scene_store_" .. k, 1)
       end
+      return true
+    end
+  elseif n == 3 and UI.page == VOICE then
+    local i = UI.voice_track()
+    if i then
+      D.Drums.page_hit(i)
       return true
     end
   elseif n == 3 and UI.page == 2 then

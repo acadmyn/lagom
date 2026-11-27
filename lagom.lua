@@ -415,6 +415,12 @@ function init()
   S.start()
   UI.init({tracks = tracks, Out = Out, C = C, H = H, Cd = Cd, Mix = Mix, Learn = Learn, Drums = Drums,
            Confirm = Confirm, S = S, Seq = Seq, Track = Track})
+  -- the VOICE page: the MIDImix top and middle knobs edit slagverk's voice
+  Mix.voice_knob = function(row, col, t)
+    if UI.page ~= UI.VOICE then return false end
+    local i = UI.voice_track()
+    return i ~= nil and Drums.page_knob(i, row, col, t)
+  end
   if Drums.problem == "restart" then
     UI.message("SLAGVERK: SYSTEM > RESTART", 4)
   elseif Drums.problem then
