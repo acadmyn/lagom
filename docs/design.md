@@ -103,7 +103,8 @@ The visual proposal with screen mockups is in a private artifact: https://claude
   - harmony: the chord editor. Progression boxes, their width following each chord's length (at least 12 px), the current one filled with a bar-progress line under it, each box labelled with its numeral (plus figure and transpose when they fit, e.g. `ii7`, `i+2`), a dot per bar under each box; the header shows key and progression (presets as `P8`; header text is cut before the corner), the slot number top right (`*` = unsaved, blinking = pending). A two-octave keyboard (bright = chord tones, dim = chord scale, both as transposed), then one row. E2 steps through five stops per chord (degree, accidental, quality, transpose: bright frame around the box; length: its bar dots light up), then progression slot, chords, progression, re-roll, chord length, root, scale, harmony drift/gravity. E3 changes the selected item.
   - clock: big tempo, master/slave, playing, beat boxes, clock in/out, then a param list (tempo, mode, ports, beats per bar, controller port, clock out per connected port).
   - scenes: 8 boxes showing each track's slot as a bar. E2/E3 select, **K3 recall, K2 store** (asks before overwriting).
-  - K2 on any page except main and scenes goes back to main.
+  - K2 on any page except main and scenes goes back to main (on release, so K2 can be held for a combo).
+  - harmony: **K2 + E2** jumps to the same stop of the previous / next chord (from the rows below the chords: to the first chord), as slagverk's K2 + E2 picks the voice (user, 2026-11-28).
 - **Drawing**: the whole frame is drawn in Lua into a 128×64 buffer with a built-in 3×5 font and sent with one `screen.poke`. Per-call screen drawing stalled the tick loop by up to 25 ms. Measured worst-case step jitter at 180 BPM, 8 tracks at 1/32: about 2.5 ms with the screen running, 1 ms without.
 - **Confirm before**:
   - loading a set while anchors are unsaved

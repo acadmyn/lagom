@@ -25,6 +25,7 @@ local track_flash = {}                    -- track id -> time
 local boot_until = 0
 
 local now = util.time
+local k2_down, k2_used = false, false     -- K2 held for a combo (K2+E2 on harmony) doesn't go back
 
 -- drawing helpers ---------------------------------------------------------------
 -- the whole frame is drawn in Lua into a 128x64 buffer of levels and sent with
@@ -927,9 +928,30 @@ local function rows_of(page)
   if page == 4 then return clock_rows() end
 end
 
+-- harmony page, K2+E2: the same stop (degree, accidental, quality, transpose,
+-- length) of the previous / next chord; from the rows below, the first chord
+local function harmony_chord_jump(d)
+  local rows = harmony_rows()
+  local id = rows[UI.sel_param[3]] or ""
+  local field, i = id:match("^(h%a+)(%d+)$")
+  local n = #D.Cd.working
+  local target
+  if field then
+    target = field .. util.clamp(tonumber(i) + d, 1, n)
+  else
+    target = "hchord1"
+  end
+  for k, r in ipairs(rows) do
+    if r == target then UI.sel_param[3] = k; return end
+  end
+end
+
 function UI.enc(n, d)
   boot_until = 0
-  if n == 1 then
+  if k2_down and n == 2 and UI.page == 3 then
+    k2_used = true
+    harmony_chord_jump(d > 0 and 1 or -1)
+  elseif n == 1 then
     UI.page = util.clamp(UI.page + d, 1, #PAGES)
   elseif UI.page == 1 then
     if n == 2 then
@@ -986,6 +1008,13 @@ end
 
 -- returns true if the key was used by the page
 function UI.key(n, z)
+  if n == 2 and z == 0 then
+    -- back to main on release, unless K2 was held for a combo
+    local was = k2_down
+    k2_down = false
+    if was and not k2_used and UI.page ~= 1 and UI.page ~= 5 then UI.page = 1 end
+    return was
+  end
   if z == 0 then return false end
   if boot_until > 0 then boot_until = 0 end
   if UI.page == 5 then
@@ -1009,7 +1038,7 @@ function UI.key(n, z)
       return true
     end
   elseif n == 2 and UI.page ~= 1 then
-    UI.page = 1
+    k2_down, k2_used = true, false
     return true
   end
   return false

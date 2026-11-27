@@ -22,6 +22,7 @@
 --
 -- E1 page, E2 select, E3 change
 -- K2 back, K3 play/confirm
+-- harmony page: K2+E2 prev/next chord
 -- scenes page: K2 store, K3 recall
 --
 -- v0.7 (step 7: screen)
