@@ -296,8 +296,13 @@ local function add_track_params(names)
     params:add_trigger(pre .. "learn_all", "learn all lanes")
     params:set_action(pre .. "learn_all", function() Learn.arm(i, 1, params:get(pre .. "voices")) end)
     for l = 1, 8 do
+      -- on the norns port: also the kit voice the note plays
       params:add_number(pre .. "lane" .. l .. "_note", "lane " .. l .. " note", 0, 127,
-        Track.DRUM_NOTES[l], note_name)
+        Track.DRUM_NOTES[l], function(p)
+          local s = note_name(p)
+          local v = Drums.note_label(i, p:get())
+          return v and (s .. " " .. v) or s
+        end)
       params:add_option(pre .. "lane" .. l .. "_role", "lane " .. l .. " role", Track.ROLES,
         Track.DRUM_ROLES[l])
       params:set_action(pre .. "lane" .. l .. "_role", on_change(function(t) t:rank_lane(l) end))

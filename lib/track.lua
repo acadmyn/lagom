@@ -382,7 +382,8 @@ function Track:step(t, seq, rel)
     if not self:is_drums() then return end
     for l = 1, self:num_lanes() do
       if self:drum_plays(l, self.pos, len, dens) then
-        self.Drums.hit(self.id, l, self:velocity(self.lanes[l].steps[self.pos]))
+        self.Drums.hit(self.id, self:p("lane" .. l .. "_note"),
+                       self:velocity(self.lanes[l].steps[self.pos]))
       end
     end
     return

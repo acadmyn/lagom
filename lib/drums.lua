@@ -1,10 +1,11 @@
 -- the norns drum machine: slagverk (acadmyn/slagverk) as a library, #37.
 -- only when slagverk is installed: then a drum track's port can be `norns`
--- (port option 17), lane n plays voice n of the track's own kit, and the
--- kits are saved in the set. without slagverk lagom stays MIDI-only.
+-- (port option 17), a lane plays the voices of the track's own kit whose
+-- note is the lane's note (GM by default, as on a MIDI drum machine), and
+-- the kits are saved in the set. without slagverk lagom stays MIDI-only.
 local Drums = {
   PORT = 17,
-  API = 1,            -- the slagverk library API this file is written for
+  API = 2,            -- the slagverk library API this file is written for (2: voice notes)
   available = false,  -- slagverk installed, its plugin in place, engine loading
   problem = nil,      -- why not: "restart" (SYSTEM > RESTART) or "old slagverk"
   kits = {},          -- track -> slagverk kit (drum tracks on the norns port)
@@ -64,10 +65,19 @@ function Drums.sync_all()
   for i = 1, #tracks do Drums.sync(i) end
 end
 
--- lane l of track i, MIDI velocity 1-127
-function Drums.hit(i, l, vel)
+-- a lane of track i with this note, MIDI velocity 1-127
+function Drums.hit(i, note, vel)
   local k = Drums.kits[i]
-  if k then k:trig(l, vel / 127) end
+  if k then k:trig_note(note, vel / 127) end
+end
+
+-- what a note plays on track i's kit: "808 CH", "-" (no voice), or nil
+-- when the track isn't on the norns port
+function Drums.note_label(i, note)
+  local k = Drums.kits[i]
+  if not k then return nil end
+  local v = k:voice_of_note(note)
+  return v and SV.Kit.engine_label(k.voices[v].engine) or "-"
 end
 
 function Drums.preset_names()
