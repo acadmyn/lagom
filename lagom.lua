@@ -265,7 +265,9 @@ local function add_track_params(names)
     end))
     params:add_number(pre .. "voices", "voices / lanes", 1, 8, 4)
     local port_names = {table.unpack(names)}
-    if Drums.available then port_names[Drums.PORT] = Drums.PORT .. ": norns" end
+    -- option 17 always exists, so a saved "norns" port survives a load without slagverk
+    -- (a 16-option param would clamp it to 16 and the next autosave would lose it)
+    port_names[Drums.PORT] = Drums.PORT .. (Drums.available and ": norns" or ": -")
     params:add_option(pre .. "port", "port", port_names, 2)
     params:set_action(pre .. "port", function()
       Seq.flush_track(i)
